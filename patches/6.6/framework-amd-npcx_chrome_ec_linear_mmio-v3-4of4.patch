@@ -1,0 +1,131 @@
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from mail-qk1-f177.google.com (mail-qk1-f177.google.com [209.85.222.177])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES128-GCM-SHA256 (128/128 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id C1F415C96
+	for <chrome-platform@lists.linux.dev>; Wed,  3 Apr 2024 00:47:32 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=209.85.222.177
+ARC-Seal:i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1712105254; cv=none; b=Zilq6iRa6iZxAcTq9qRONZeVOQewDwWpt83TVFsWrzq12TB/VRjRi96wUGam0oJwWqvBnch8qrIdpXTxzgPcBHd7w14HaJGuf7lE6nFYH7kb6iFvEzVrTfp5non1qPLG4EvNToAIFWpyTVR3M1rClMj6BQnQ49T1zXhq/i0iTH0=
+ARC-Message-Signature:i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1712105254; c=relaxed/simple;
+	bh=OlukQvyyNfN4YIbp8bemDIn20AsxSDov4u4d3Obh+Mk=;
+	h=From:To:Cc:Subject:Date:Message-ID:In-Reply-To:References:
+	 MIME-Version; b=cg2M9XQOa8HFTAqBuPCekH1JHttXbww0LGRAW+xfEkSdDoSNYxVeqduRhm/spvltKL6bhWfqrQOZs4KNPeOwVMb4o57w7cJVaF1Rxl1g+eNpu9L00gZGc1ptvjaPRfRKrTT11pAlsOgSl1+rI0hZDE4T5Nh3thEBNOqeZPyNBzQ=
+ARC-Authentication-Results:i=1; smtp.subspace.kernel.org; dmarc=none (p=none dis=none) header.from=howett.net; spf=none smtp.mailfrom=howett.net; dkim=pass (2048-bit key) header.d=howett-net.20230601.gappssmtp.com header.i=@howett-net.20230601.gappssmtp.com header.b=nb39EBaL; arc=none smtp.client-ip=209.85.222.177
+Authentication-Results: smtp.subspace.kernel.org; dmarc=none (p=none dis=none) header.from=howett.net
+Authentication-Results: smtp.subspace.kernel.org; spf=none smtp.mailfrom=howett.net
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=howett-net.20230601.gappssmtp.com header.i=@howett-net.20230601.gappssmtp.com header.b="nb39EBaL"
+Received: by mail-qk1-f177.google.com with SMTP id af79cd13be357-789f00aba19so439188785a.0
+        for <chrome-platform@lists.linux.dev>; Tue, 02 Apr 2024 17:47:32 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=howett-net.20230601.gappssmtp.com; s=20230601; t=1712105252; x=1712710052; darn=lists.linux.dev;
+        h=content-transfer-encoding:mime-version:references:in-reply-to
+         :message-id:date:subject:cc:to:from:from:to:cc:subject:date
+         :message-id:reply-to;
+        bh=s3Nw5roggFkXaKz2IEG0OPqSG8qSsWdEBfGv+6eMYWo=;
+        b=nb39EBaL6LnSt+YkfeY6JO/6RpHzZTWR7yiHGWERKiU5wYDJnm65vlFp3WDvkJ6P7J
+         MYYrloWmDGU9ksVdi78A0gLDkAIfTUTTGiLdiOT2NJme1/Qmrs0DPP/JIm1b8NUscKC8
+         3HCeMdYn7Wmfjn6BGv6P6wua9wWleYYtMh7OFp5ajYcuLdFpBILDLXXIWJz20aKlLGSh
+         7C1I7LsADy2ml6jAlFfvSkaGVuHBPzhrFIOGuPj6nQ5WiJ9AsFQRc52JQAp8cZiXVxXN
+         cHwpbacPgCSSmmAWmUsBdKrXEHJiKm0LTWETYcsV3HG/CNroaUk68bWzhyuKcLIs+FYk
+         hfzQ==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20230601; t=1712105252; x=1712710052;
+        h=content-transfer-encoding:mime-version:references:in-reply-to
+         :message-id:date:subject:cc:to:from:x-gm-message-state:from:to:cc
+         :subject:date:message-id:reply-to;
+        bh=s3Nw5roggFkXaKz2IEG0OPqSG8qSsWdEBfGv+6eMYWo=;
+        b=PLaeupvcUGXZmZ6HP3jjhtuRxI/VjEB9TWGTrloJizW12LisisprUVRgUzvjrdwZvs
+         JP+WaJG1It5Pu3x8+wj+6EPKp1Cb5CUSr9PwC8WahLh0MkLrF7Agp9pbggmzN6wBiRuh
+         FMqlUiVKSTotXbncKac1XOvmYV/XVkpodQP+iD+z2dB1ZQBcEvfrPUlEWuwAIa7D2A7+
+         5VZoP+7/EFFY42nxohQsj+3uo47YYshqBxU8CnRIeIeO+soSivoO2kOU635+Y7VenAB6
+         zWAtl5relsbU5/UHX1nf2m8Aqa+31b57pp78s4UtZM0ZBHgfjC0jMxYzkayH+ntHcIZj
+         ZwNQ==
+X-Forwarded-Encrypted: i=1; AJvYcCU2si3J861FhnrxnNypSGdlrg4CSVWMfxdVhVAidB953t3R0DGX9XPv2zpikzPugteiz4tfFGttTTMWbv9NKUo8zW+QFJ0OYVvs5DOT8wdD
+X-Gm-Message-State: AOJu0YwAXOrfRGxiMFwv4hwIYy2Rr5HdzKa+rlG4bJyKR432+uzZ2Eri
+	Ow4uX7cm6bGifkDJ0K0tBg2tQh9/8AqiG7JO/5JOXW0+19ib0NERA7dEvSJVxA==
+X-Google-Smtp-Source: AGHT+IHtl/pm04ij4N1py7LYLFWgPgavv51ceutzsiKLffSTV8UYDRU4tZoRNRLnDy5+Poa+Uv4Ddw==
+X-Received: by 2002:a05:620a:2046:b0:789:fb28:70f5 with SMTP id d6-20020a05620a204600b00789fb2870f5mr1164655qka.55.1712105251791;
+        Tue, 02 Apr 2024 17:47:31 -0700 (PDT)
+Received: from tycho.delfino.n.howett.net (99-107-94-179.lightspeed.stlsmo.sbcglobal.net. [99.107.94.179])
+        by smtp.googlemail.com with ESMTPSA id h15-20020a05620a13ef00b00789effdd500sm4700834qkl.76.2024.04.02.17.47.31
+        (version=TLS1_3 cipher=TLS_AES_256_GCM_SHA384 bits=256/256);
+        Tue, 02 Apr 2024 17:47:31 -0700 (PDT)
+From: "Dustin L. Howett" <dustin@howett.net>
+To: Tzung-Bi Shih <tzungbi@kernel.org>,
+	Guenter Roeck <groeck@chromium.org>,
+	chrome-platform@lists.linux.dev
+Cc: "Dustin L. Howett" <dustin@howett.net>
+Subject: [PATCH v3 4/4] platform/chrome: cros_ec_lpc: add quirks for the Framework Laptop (AMD)
+Date: Tue,  2 Apr 2024 19:47:13 -0500
+Message-ID: <20240403004713.130365-5-dustin@howett.net>
+X-Mailer: git-send-email 2.43.0
+In-Reply-To: <20240403004713.130365-1-dustin@howett.net>
+References: <20231126192452.97824-1-dustin@howett.net>
+ <20240403004713.130365-1-dustin@howett.net>
+Precedence: bulk
+X-Mailing-List: chrome-platform@lists.linux.dev
+List-Id: <chrome-platform.lists.linux.dev>
+List-Subscribe: <mailto:chrome-platform+subscribe@lists.linux.dev>
+List-Unsubscribe: <mailto:chrome-platform+unsubscribe@lists.linux.dev>
+MIME-Version: 1.0
+Content-Transfer-Encoding: 8bit
+
+The original Framework Laptop 13 platform (Intel 11th, 12th, and 13th
+Generation at this time) uses a Microchip embedded controller in a
+standard configuration.
+
+The newer devices in this product line--Framework Laptop 13 and 16 (AMD
+Ryzen)--use a NPCX embedded controller. However, they deviate from the
+configuration of ChromeOS platforms built with the NPCX EC.
+
+* The MMIO region for EC memory begins at port 0xE00 rather than the
+  expected 0x900.
+
+cros_ec_lpc's quirks system is used to address this issue.
+
+Signed-off-by: Dustin L. Howett <dustin@howett.net>
+---
+ drivers/platform/chrome/cros_ec_lpc.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/chrome/cros_ec_lpc.c b/drivers/platform/chrome/cros_ec_lpc.c
+index 087131f159d4..beaf714e8568 100644
+--- a/drivers/platform/chrome/cros_ec_lpc.c
++++ b/drivers/platform/chrome/cros_ec_lpc.c
+@@ -527,6 +527,11 @@ static const struct acpi_device_id cros_ec_lpc_acpi_device_ids[] = {
+ };
+ MODULE_DEVICE_TABLE(acpi, cros_ec_lpc_acpi_device_ids);
+ 
++static const struct lpc_driver_data framework_laptop_amd_lpc_driver_data __initconst = {
++	.quirks = CROS_EC_LPC_QUIRK_REMAP_MEMORY,
++	.quirk_mmio_memory_base = 0xE00,
++};
++
+ static const struct dmi_system_id cros_ec_lpc_dmi_table[] __initconst = {
+ 	{
+ 		/*
+@@ -581,7 +586,16 @@ static const struct dmi_system_id cros_ec_lpc_dmi_table[] __initconst = {
+ 	},
+ 	/* A small number of non-Chromebook/box machines also use the ChromeOS EC */
+ 	{
+-		/* the Framework Laptop */
++		/* the Framework Laptop 13 (AMD Ryzen) and 16 (AMD Ryzen) */
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Framework"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "AMD Ryzen"),
++			DMI_MATCH(DMI_PRODUCT_FAMILY, "Laptop"),
++		},
++		.driver_data = (void *)&framework_laptop_amd_lpc_driver_data,
++	},
++	{
++		/* the Framework Laptop (Intel 11th, 12th, 13th Generation) */
+ 		.matches = {
+ 			DMI_MATCH(DMI_SYS_VENDOR, "Framework"),
+ 			DMI_MATCH(DMI_PRODUCT_NAME, "Laptop"),
+-- 
+2.43.0
+
+
