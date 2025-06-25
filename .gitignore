@@ -3,6 +3,9 @@
 *~
 *bak
 
+/build
+/outputs
+
 /result
 /result-*
 

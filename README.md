@@ -7,3 +7,24 @@ Framework laptop patches.
 
 Use `nix fmt` to lint and format the repo using
 `github:vpayno/nix-treefmt-conf`.
+
+## Kernel Developer Shell
+
+The shells for development need the native build inputs for compiling the
+kernel.
+
+```bash
+$ nix develop .#linux_6_6-framework
+
+$ pushd "$(mktemp --tmpdir=./build --directory)"
+
+$ unpackPhase
+
+$ cd linux-6.6*
+
+$ patchPhase
+
+$ make menuconfig KCONFIG_CONFIG=build/.config
+
+$ KCONFIG_CONFIG=build/.config buildPhase
+```

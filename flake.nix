@@ -44,11 +44,16 @@
 
         devShells = {
           default = pkgs-unstable.mkShell {
+            pname = "framework patched kernel shell";
+
+            # get added to $PATH
             packages = [
-              self.packages.${system}.linux_6_6-framework
             ];
 
-            inputsFrom = with pkgs-unstable; [
+            # don't use buildInputs in mkShell
+
+            # get added to PATH, LD_LIBRARY_PATH, include paths, pkg-config, man pages
+            nativeBuildInputs = with pkgs-unstable; [
               bc
               bison
               cargo
@@ -78,9 +83,29 @@
             ];
 
             shellHook = ''
+              export LD_LIBRARY_PATH="${
+                pkgs-unstable.lib.makeLibraryPath self.devShells.${system}.framework.nativeBuildInputs
+              }:$LD_LIBRARY_PATH"
+
               ${pkgs-unstable.lib.getExe pkgs-unstable.cowsay} "Welcome to nix develop .#default";
             '';
           };
+
+          framework = self.devShells.${system}.default.overrideAttrs (oldAttrs: {
+            pname = "unpatched kernel shell";
+
+            packages = [
+              self.packages.${system}.linux_6_6-framework
+            ];
+          });
+
+          upstream = self.devShells.${system}.default.overrideAttrs (oldAttrs: {
+            pname = "unpatched kernel shell";
+
+            packages = [
+              self.packages.${system}.linux_6_6-upstream
+            ];
+          });
         };
 
         packages = {
