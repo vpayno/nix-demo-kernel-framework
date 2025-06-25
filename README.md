@@ -1,6 +1,6 @@
-# nix-pkgs-kernel-framework
+# nix-demo-kernel-framework
 
-Nix flake demo for patching a `6.6 TLS` kernel from `nixpkgs-24.04`. Using
+Nix flake demo for patching a `6.6 TLS` kernel from `nixpkgs-unstable`. Using
 Framework laptop patches.
 
 ## linting & formatting
