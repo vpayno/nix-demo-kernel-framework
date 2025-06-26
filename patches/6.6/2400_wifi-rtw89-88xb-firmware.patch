@@ -1,0 +1,38 @@
+--- a/drivers/net/wireless/realtek/rtw89/core.h	2024-12-24 13:22:23.758244884 -0800
++++ b/drivers/net/wireless/realtek/rtw89/core.h	2024-12-24 13:33:04.233450134 -0800
+@@ -109,6 +109,7 @@
+ enum rtw89_core_chip_id {
+ 	RTL8852A,
+ 	RTL8852B,
++	RTL8852BT,
+ 	RTL8852C,
+ 	RTL8851B,
+ 	RTL8922A,
+@@ -5314,6 +5315,16 @@
+ 	rcu_read_unlock();
+ }
+ 
++static inline bool rtw89_is_rtl885xb(struct rtw89_dev *rtwdev)
++{
++	enum rtw89_core_chip_id chip_id = rtwdev->chip->chip_id;
++
++	if (chip_id == RTL8852B || chip_id == RTL8851B || chip_id == RTL8852BT)
++		return true;
++
++	return false;
++}
++
+ int rtw89_core_tx_write(struct rtw89_dev *rtwdev, struct ieee80211_vif *vif,
+ 			struct ieee80211_sta *sta, struct sk_buff *skb, int *qsel);
+ int rtw89_h2c_tx(struct rtw89_dev *rtwdev,
+--- a/drivers/net/wireless/realtek/rtw89/mac.c	2024-12-24 13:22:23.759244880 -0800
++++ b/drivers/net/wireless/realtek/rtw89/mac.c	2024-12-24 13:24:41.015068494 -0800
+@@ -3494,7 +3494,7 @@
+ 
+ 	rtw89_write32(rtwdev, R_AX_WCPU_FW_CTRL, val);
+ 
+-	if (rtwdev->chip->chip_id == RTL8852B)
++	if (rtw89_is_rtl885xb(rtwdev))
+ 		rtw89_write32_mask(rtwdev, R_AX_SEC_CTRL,
+ 				   B_AX_SEC_IDMEM_SIZE_CONFIG_MASK, 0x2);
+ 

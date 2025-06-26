@@ -46,8 +46,11 @@
               nix run .#usage | .#default
               nix run .#show-latest
 
+              nix run .#fetch-gentoo-patches
+
               nix develop .#default
               nix develop .#linux_6_6-framework
+              nix develop .#linux_6_6-gentoo
               nix develop .#linux_6_6-upstream
           '';
         };
@@ -71,6 +74,36 @@
                 printf "Version Moniker Releaed Source Changelog\n";
                 curl -s https://www.kernel.org/releases.json | jq -r '.releases[] | "\(.version) \(.moniker) \(.released.isodate) \(.source) \(.changelog)"'
               } | column -t
+            '';
+          };
+
+          fetchGentooPatches = pkgs-unstable.writeShellApplication {
+            name = "fetch-gentoo-patches";
+            runtimeInputs = with pkgs-unstable; [
+              coreutils
+              curl
+              gnugrep
+              gnused
+              jq
+            ];
+            text = ''
+              declare src_url="https://dev.gentoo.org/~mpagano/genpatches/trunk/6.6/"
+              declare data
+              declare -a patches
+
+              data="$(curl -sS "''${src_url}" | grep '[.]patch' | grep -v 'linux-6[.]6[.][0-9]' | sed -r -e 's;.*href="(.*)".*;\1;g')"
+
+              printf "Downloading the following patches:\n"
+              printf "%s\n" "''${data}"
+              printf "\n"
+
+              mapfile -t patches <<< "''${data}"
+
+              for p in "''${patches[@]}"; do
+                printf "Downloading [%s]...\n" "''${src_url}''${p}"
+                curl -sS --output ./patches/6.6/"''${p}" "''${src_url}''${p}"
+                printf "\n"
+              done
             '';
           };
         };
@@ -145,11 +178,17 @@
         };
 
         packages = {
-          default = self.packages.${system}.linux_6_6-framework;
+          default = self.packages.${system}.linux_6_6-patched;
 
-          inherit (pkgs-unstable) linux_6_6 linux_6_6-framework linux_6_6-upstream;
+          inherit (pkgs-unstable)
+            linux_6_6
+            linux_6_6-framework
+            linux_6_6-gentoo
+            linux_6_6-patched
+            linux_6_6-upstream
+            ;
 
-          inherit (scripts) showUsage showLatest;
+          inherit (scripts) showUsage showLatest fetchGentooPatches;
         };
 
         apps = {
@@ -163,6 +202,11 @@
           show-latest = {
             type = "app";
             program = "${pkgs-unstable.lib.getExe self.packages.${system}.showLatest}";
+          };
+
+          fetch-gentoo-patches = {
+            type = "app";
+            program = "${pkgs-unstable.lib.getExe self.packages.${system}.fetchGentooPatches}";
           };
         };
       }

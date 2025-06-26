@@ -1,0 +1,37 @@
+Subject: [gcc-14 PATCH] drm: i915: Adapt to -Walloc-size
+
+GCC 14 introduces a new -Walloc-size included in -Wextra which errors out
+like:
+```
+drivers/gpu/drm/i915/gem/i915_gem_execbuffer.c: In function ‘eb_copy_relocations’:
+drivers/gpu/drm/i915/gem/i915_gem_execbuffer.c:1681:24: error: allocation of insufficient size ‘1’ for type ‘struct drm_i915_gem_relocation_entry’ with size ‘32’ [-Werror=alloc-size]
+ 1681 |                 relocs = kvmalloc_array(size, 1, GFP_KERNEL);
+      |                        ^
+
+```
+
+So, just swap the number of members and size arguments to match the prototype, as
+we're initialising 1 element of size `size`. GCC then sees we're not
+doing anything wrong.
+
+Link: https://lore.kernel.org/intel-gfx/20231107215538.1891359-1-sam@gentoo.org/
+Signed-off-by: Sam James <sam@gentoo.org>
+---
+ drivers/gpu/drm/i915/gem/i915_gem_execbuffer.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/i915/gem/i915_gem_execbuffer.c b/drivers/gpu/drm/i915/gem/i915_gem_execbuffer.c
+index 683fd8d3151c..45b9d9e34b8b 100644
+--- a/drivers/gpu/drm/i915/gem/i915_gem_execbuffer.c
++++ b/drivers/gpu/drm/i915/gem/i915_gem_execbuffer.c
+@@ -1678,7 +1678,7 @@ static int eb_copy_relocations(const struct i915_execbuffer *eb)
+ 		urelocs = u64_to_user_ptr(eb->exec[i].relocs_ptr);
+ 		size = nreloc * sizeof(*relocs);
+ 
+-		relocs = kvmalloc_array(size, 1, GFP_KERNEL);
++		relocs = kvmalloc_array(1, size, GFP_KERNEL);
+ 		if (!relocs) {
+ 			err = -ENOMEM;
+ 			goto err;
+-- 
+2.42.1
