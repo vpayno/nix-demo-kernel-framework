@@ -38,6 +38,23 @@
             allowUnfree = true;
           };
         };
+
+        scripts = {
+          showLatest = pkgs-unstable.writeShellApplication {
+            name = "show-latest";
+            runtimeInputs = with pkgs-unstable; [
+              coreutils
+              curl
+              jq
+            ];
+            text = ''
+              {
+                printf "Version Moniker Releaed Source Changelog\n";
+                curl -s https://www.kernel.org/releases.json | jq -r '.releases[] | "\(.version) \(.moniker) \(.released.isodate) \(.source) \(.changelog)"'
+              } | column -t
+            '';
+          };
+        };
       in
       {
         formatter = treefmt-conf.formatter.${system};
@@ -91,7 +108,7 @@
             '';
           };
 
-          framework = self.devShells.${system}.default.overrideAttrs (oldAttrs: {
+          framework = self.devShells.${system}.default.overrideAttrs (_: {
             pname = "unpatched kernel shell";
 
             packages = [
@@ -99,7 +116,7 @@
             ];
           });
 
-          upstream = self.devShells.${system}.default.overrideAttrs (oldAttrs: {
+          upstream = self.devShells.${system}.default.overrideAttrs (_: {
             pname = "unpatched kernel shell";
 
             packages = [
@@ -111,11 +128,18 @@
         packages = {
           default = self.packages.${system}.linux_6_6-framework;
 
-          inherit (pkgs-unstable) linux_6_6;
+          inherit (pkgs-unstable) linux_6_6 linux_6_6-framework linux_6_6-upstream;
 
-          linux_6_6-framework = pkgs-unstable.linux_6_6-framework;
+          inherit (scripts) showLatest;
+        };
 
-          linux_6_6-upstream = pkgs-unstable.linux_6_6-upstream;
+        apps = {
+          default = self.apps.${system}.show-latest;
+
+          show-latest = {
+            type = "app";
+            program = "${pkgs-unstable.lib.getExe self.packages.${system}.showLatest}";
+          };
         };
       }
     );
