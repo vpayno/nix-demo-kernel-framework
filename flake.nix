@@ -39,7 +39,26 @@
           };
         };
 
+        data = {
+          usageMessage = ''
+            Available flake commands:
+
+              nix run .#usage | .#default
+              nix run .#show-latest
+
+              nix develop .#default
+              nix develop .#linux_6_6-framework
+              nix develop .#linux_6_6-upstream
+          '';
+        };
+
         scripts = {
+          # very odd, this doesn't work with pkgs.writeShellApplication
+          # odd quoting error when the string usagemessage as new lines
+          showUsage = pkgs-unstable.writeShellScriptBin "show-usage" ''
+            printf "%s" "${data.usageMessage}"
+          '';
+
           showLatest = pkgs-unstable.writeShellApplication {
             name = "show-latest";
             runtimeInputs = with pkgs-unstable; [
@@ -130,11 +149,16 @@
 
           inherit (pkgs-unstable) linux_6_6 linux_6_6-framework linux_6_6-upstream;
 
-          inherit (scripts) showLatest;
+          inherit (scripts) showUsage showLatest;
         };
 
         apps = {
-          default = self.apps.${system}.show-latest;
+          default = self.apps.${system}.usage;
+
+          usage = {
+            type = "app";
+            program = "${pkgs-unstable.lib.getExe self.packages.${system}.showUsage}";
+          };
 
           show-latest = {
             type = "app";

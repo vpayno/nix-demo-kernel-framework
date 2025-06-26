@@ -3,7 +3,21 @@
 Nix flake demo for patching a `6.6 TLS` kernel from `nixpkgs-unstable`. Using
 Framework laptop patches.
 
-## linting & formatting
+## Usage
+
+```text
+$ nix run .#usage
+Available flake commands:
+
+  nix run .#usage | .#default
+  nix run .#show-latest
+
+  nix develop .#default
+  nix develop .#linux_6_6-framework
+  nix develop .#linux_6_6-upstream
+```
+
+## Linting & Formatting
 
 Use `nix fmt` to lint and format the repo using
 `github:vpayno/nix-treefmt-conf`.
