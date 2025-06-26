@@ -153,28 +153,12 @@
 
             shellHook = ''
               export LD_LIBRARY_PATH="${
-                pkgs-unstable.lib.makeLibraryPath self.devShells.${system}.framework.nativeBuildInputs
+                pkgs-unstable.lib.makeLibraryPath self.devShells.${system}.default.nativeBuildInputs
               }:$LD_LIBRARY_PATH"
 
               ${pkgs-unstable.lib.getExe pkgs-unstable.cowsay} "Welcome to nix develop .#default";
             '';
           };
-
-          framework = self.devShells.${system}.default.overrideAttrs (_: {
-            pname = "unpatched kernel shell";
-
-            packages = [
-              self.packages.${system}.linux_6_6-framework
-            ];
-          });
-
-          upstream = self.devShells.${system}.default.overrideAttrs (_: {
-            pname = "unpatched kernel shell";
-
-            packages = [
-              self.packages.${system}.linux_6_6-upstream
-            ];
-          });
         };
 
         packages = {
