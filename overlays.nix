@@ -37,31 +37,25 @@ let
     linux_6_6-framework = super.linux_6_6.overrideAttrs (oldAttrs: {
       patches = oldAttrs.patches ++ patches_6_6-framework;
 
-      postPatch =
-        (oldAttrs.postPatch or "")
-        + ''
-          echo patched kernel ${oldAttrs.pname} ${oldAttrs.version} with Framework patches
-        '';
+      postPatch = (oldAttrs.postPatch or "") + ''
+        echo patched kernel ${oldAttrs.pname} ${oldAttrs.version} with Framework patches
+      '';
     });
 
     linux_6_6-gentoo = super.linux_6_6.overrideAttrs (oldAttrs: {
       patches = oldAttrs.patches ++ patches_6_6-gentoo;
 
-      postPatch =
-        (oldAttrs.postPatch or "")
-        + ''
-          echo patched kernel ${oldAttrs.pname} ${oldAttrs.version} with Gentoo patches
-        '';
+      postPatch = (oldAttrs.postPatch or "") + ''
+        echo patched kernel ${oldAttrs.pname} ${oldAttrs.version} with Gentoo patches
+      '';
     });
 
     linux_6_6-patched = self.linux_6_6-framework.overrideAttrs (oldAttrs: {
       patches = oldAttrs.patches ++ patches_6_6-gentoo;
 
-      postPatch =
-        (oldAttrs.postPatch or "")
-        + ''
-          echo patched kernel ${oldAttrs.pname} ${oldAttrs.version} with Gentoo patches
-        '';
+      postPatch = (oldAttrs.postPatch or "") + ''
+        echo patched kernel ${oldAttrs.pname} ${oldAttrs.version} with Gentoo patches
+      '';
     });
 
     linux_6_6 = self.linux_6_6-patched;
