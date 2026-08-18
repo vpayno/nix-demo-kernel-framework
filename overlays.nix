@@ -27,7 +27,7 @@ let
     ./patches/6.6/2952_resolve-btfids-Fix-compiler-warnings.patch
     ./patches/6.6/2980_GCC15-gnu23-to-gnu11-fix.patch
     ./patches/6.6/2990_libbpf-v2-workaround-Wmaybe-uninitialized-false-pos.patch
-    ./patches/6.6/2995_dtrace-6.6_p2.patch
+    # ./patches/6.6/2995_dtrace-6.6_p2.patch
     ./patches/6.6/3000_Support-printing-firmware-info.patch
     ./patches/6.6/4567_distro-Gentoo-Kconfig.patch
     ./patches/6.6/5010_enable-cpu-optimizations-universal.patch
