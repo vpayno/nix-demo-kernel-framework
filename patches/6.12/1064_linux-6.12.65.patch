@@ -1,0 +1,766 @@
+diff --git a/Makefile b/Makefile
+index e8e272e1187b54..ab23f9796ac431 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 12
+-SUBLEVEL = 64
++SUBLEVEL = 65
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/drivers/char/virtio_console.c b/drivers/char/virtio_console.c
+index abcfdd3c291835..8c4e2b1e3de0ed 100644
+--- a/drivers/char/virtio_console.c
++++ b/drivers/char/virtio_console.c
+@@ -1579,8 +1579,8 @@ static void handle_control_message(struct virtio_device *vdev,
+ 		break;
+ 	case VIRTIO_CONSOLE_RESIZE: {
+ 		struct {
+-			__virtio16 rows;
+ 			__virtio16 cols;
++			__virtio16 rows;
+ 		} size;
+ 
+ 		if (!is_console_port(port))
+diff --git a/drivers/cpufreq/intel_pstate.c b/drivers/cpufreq/intel_pstate.c
+index d0f4f7c2ae4d94..9d8cb44c26c70e 100644
+--- a/drivers/cpufreq/intel_pstate.c
++++ b/drivers/cpufreq/intel_pstate.c
+@@ -600,9 +600,6 @@ static bool turbo_is_disabled(void)
+ {
+ 	u64 misc_en;
+ 
+-	if (!cpu_feature_enabled(X86_FEATURE_IDA))
+-		return true;
+-
+ 	rdmsrl(MSR_IA32_MISC_ENABLE, misc_en);
+ 
+ 	return !!(misc_en & MSR_IA32_MISC_ENABLE_TURBO_DISABLE);
+@@ -2018,7 +2015,8 @@ static u64 atom_get_val(struct cpudata *cpudata, int pstate)
+ 	u32 vid;
+ 
+ 	val = (u64)pstate << 8;
+-	if (READ_ONCE(global.no_turbo) && !READ_ONCE(global.turbo_disabled))
++	if (READ_ONCE(global.no_turbo) && !READ_ONCE(global.turbo_disabled) &&
++	    cpu_feature_enabled(X86_FEATURE_IDA))
+ 		val |= (u64)1 << 32;
+ 
+ 	vid_fp = cpudata->vid.min + mul_fp(
+@@ -2183,7 +2181,8 @@ static u64 core_get_val(struct cpudata *cpudata, int pstate)
+ 	u64 val;
+ 
+ 	val = (u64)pstate << 8;
+-	if (READ_ONCE(global.no_turbo) && !READ_ONCE(global.turbo_disabled))
++	if (READ_ONCE(global.no_turbo) && !READ_ONCE(global.turbo_disabled) &&
++	    cpu_feature_enabled(X86_FEATURE_IDA))
+ 		val |= (u64)1 << 32;
+ 
+ 	return val;
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_vm.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_vm.c
+index 37d53578825b33..211d67a2e48dd9 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_vm.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_vm.c
+@@ -2747,10 +2747,12 @@ int amdgpu_vm_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
+ 	case AMDGPU_VM_OP_RESERVE_VMID:
+ 		/* We only have requirement to reserve vmid from gfxhub */
+ 		if (!fpriv->vm.reserved_vmid[AMDGPU_GFXHUB(0)]) {
+-			amdgpu_vmid_alloc_reserved(adev, AMDGPU_GFXHUB(0));
++			int r = amdgpu_vmid_alloc_reserved(adev, AMDGPU_GFXHUB(0));
++
++			if (r)
++				return r;
+ 			fpriv->vm.reserved_vmid[AMDGPU_GFXHUB(0)] = true;
+ 		}
+-
+ 		break;
+ 	case AMDGPU_VM_OP_UNRESERVE_VMID:
+ 		if (fpriv->vm.reserved_vmid[AMDGPU_GFXHUB(0)]) {
+diff --git a/drivers/iommu/amd/init.c b/drivers/iommu/amd/init.c
+index 8659cb0bc7e6d3..e1816ae8699dd1 100644
+--- a/drivers/iommu/amd/init.c
++++ b/drivers/iommu/amd/init.c
+@@ -816,16 +816,11 @@ static void iommu_enable_command_buffer(struct amd_iommu *iommu)
+ 
+ 	BUG_ON(iommu->cmd_buf == NULL);
+ 
+-	if (!is_kdump_kernel()) {
+-		/*
+-		 * Command buffer is re-used for kdump kernel and setting
+-		 * of MMIO register is not required.
+-		 */
+-		entry = iommu_virt_to_phys(iommu->cmd_buf);
+-		entry |= MMIO_CMD_SIZE_512;
+-		memcpy_toio(iommu->mmio_base + MMIO_CMD_BUF_OFFSET,
+-			    &entry, sizeof(entry));
+-	}
++	entry = iommu_virt_to_phys(iommu->cmd_buf);
++	entry |= MMIO_CMD_SIZE_512;
++
++	memcpy_toio(iommu->mmio_base + MMIO_CMD_BUF_OFFSET,
++		    &entry, sizeof(entry));
+ 
+ 	amd_iommu_reset_cmd_buffer(iommu);
+ }
+@@ -874,15 +869,10 @@ static void iommu_enable_event_buffer(struct amd_iommu *iommu)
+ 
+ 	BUG_ON(iommu->evt_buf == NULL);
+ 
+-	if (!is_kdump_kernel()) {
+-		/*
+-		 * Event buffer is re-used for kdump kernel and setting
+-		 * of MMIO register is not required.
+-		 */
+-		entry = iommu_virt_to_phys(iommu->evt_buf) | EVT_LEN_MASK;
+-		memcpy_toio(iommu->mmio_base + MMIO_EVT_BUF_OFFSET,
+-			    &entry, sizeof(entry));
+-	}
++	entry = iommu_virt_to_phys(iommu->evt_buf) | EVT_LEN_MASK;
++
++	memcpy_toio(iommu->mmio_base + MMIO_EVT_BUF_OFFSET,
++		    &entry, sizeof(entry));
+ 
+ 	/* set head and tail to zero manually */
+ 	writel(0x00, iommu->mmio_base + MMIO_EVT_HEAD_OFFSET);
+diff --git a/drivers/net/phy/mediatek-ge-soc.c b/drivers/net/phy/mediatek-ge-soc.c
+index f4f9412d0cd7e2..4b2a9a5444c576 100644
+--- a/drivers/net/phy/mediatek-ge-soc.c
++++ b/drivers/net/phy/mediatek-ge-soc.c
+@@ -1082,9 +1082,9 @@ static int mt798x_phy_calibration(struct phy_device *phydev)
+ 	}
+ 
+ 	buf = (u32 *)nvmem_cell_read(cell, &len);
++	nvmem_cell_put(cell);
+ 	if (IS_ERR(buf))
+ 		return PTR_ERR(buf);
+-	nvmem_cell_put(cell);
+ 
+ 	if (!buf[0] || !buf[1] || !buf[2] || !buf[3] || len < 4 * sizeof(u32)) {
+ 		phydev_err(phydev, "invalid efuse data\n");
+diff --git a/drivers/pwm/pwm-stm32.c b/drivers/pwm/pwm-stm32.c
+index 4f231f8aae7d4c..778346039ded43 100644
+--- a/drivers/pwm/pwm-stm32.c
++++ b/drivers/pwm/pwm-stm32.c
+@@ -458,8 +458,7 @@ static int stm32_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
+ 		return 0;
+ 	}
+ 
+-	if (state->polarity != pwm->state.polarity)
+-		stm32_pwm_set_polarity(priv, pwm->hwpwm, state->polarity);
++	stm32_pwm_set_polarity(priv, pwm->hwpwm, state->polarity);
+ 
+ 	ret = stm32_pwm_config(priv, pwm->hwpwm,
+ 			       state->duty_cycle, state->period);
+diff --git a/include/linux/if_bridge.h b/include/linux/if_bridge.h
+index 3ff96ae31bf6de..c5fe3b2a53e827 100644
+--- a/include/linux/if_bridge.h
++++ b/include/linux/if_bridge.h
+@@ -65,11 +65,9 @@ struct br_ip_list {
+ #define BR_DEFAULT_AGEING_TIME	(300 * HZ)
+ 
+ struct net_bridge;
+-void brioctl_set(int (*hook)(struct net *net, struct net_bridge *br,
+-			     unsigned int cmd, struct ifreq *ifr,
++void brioctl_set(int (*hook)(struct net *net, unsigned int cmd,
+ 			     void __user *uarg));
+-int br_ioctl_call(struct net *net, struct net_bridge *br, unsigned int cmd,
+-		  struct ifreq *ifr, void __user *uarg);
++int br_ioctl_call(struct net *net, unsigned int cmd, void __user *uarg);
+ 
+ #if IS_ENABLED(CONFIG_BRIDGE) && IS_ENABLED(CONFIG_BRIDGE_IGMP_SNOOPING)
+ int br_multicast_list_adjacent(struct net_device *dev,
+diff --git a/include/linux/mm.h b/include/linux/mm.h
+index 13b4bd7355c14c..20f9287d23a572 100644
+--- a/include/linux/mm.h
++++ b/include/linux/mm.h
+@@ -2238,13 +2238,13 @@ static inline int folio_expected_ref_count(const struct folio *folio)
+ 	const int order = folio_order(folio);
+ 	int ref_count = 0;
+ 
+-	if (WARN_ON_ONCE(folio_test_slab(folio)))
++	if (WARN_ON_ONCE(page_has_type(&folio->page) && !folio_test_hugetlb(folio)))
+ 		return 0;
+ 
+-	if (folio_test_anon(folio)) {
+-		/* One reference per page from the swapcache. */
+-		ref_count += folio_test_swapcache(folio) << order;
+-	} else if (!((unsigned long)folio->mapping & PAGE_MAPPING_FLAGS)) {
++	/* One reference per page from the swapcache. */
++	ref_count += folio_test_swapcache(folio) << order;
++
++	if (!folio_test_anon(folio)) {
+ 		/* One reference per page from the pagecache. */
+ 		ref_count += !!folio->mapping << order;
+ 		/* One reference from PG_private. */
+diff --git a/include/linux/sched/topology.h b/include/linux/sched/topology.h
+index 4237daa5ac7a25..3cf27591fe905d 100644
+--- a/include/linux/sched/topology.h
++++ b/include/linux/sched/topology.h
+@@ -106,6 +106,9 @@ struct sched_domain {
+ 	unsigned int nr_balance_failed; /* initialise to 0 */
+ 
+ 	/* idle_balance() stats */
++	unsigned int newidle_call;
++	unsigned int newidle_success;
++	unsigned int newidle_ratio;
+ 	u64 max_newidle_lb_cost;
+ 	unsigned long last_decay_max_lb_cost;
+ 
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 4b1953b6c76ab4..b1895b330ff0a3 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -118,6 +118,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(sched_update_nr_running_tp);
+ EXPORT_TRACEPOINT_SYMBOL_GPL(sched_compute_energy_tp);
+ 
+ DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
++DEFINE_PER_CPU(struct rnd_state, sched_rnd_state);
+ 
+ #ifdef CONFIG_SCHED_DEBUG
+ /*
+@@ -8335,6 +8336,8 @@ void __init sched_init_smp(void)
+ {
+ 	sched_init_numa(NUMA_NO_NODE);
+ 
++	prandom_init_once(&sched_rnd_state);
++
+ 	/*
+ 	 * There's no userspace yet to cause hotplug operations; hence all the
+ 	 * CPU masks are stable and all blatant races in the below code cannot
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index 22dc54aab8dd63..1436d6bb86ec44 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -12186,24 +12186,43 @@ void update_max_interval(void)
+ 	max_load_balance_interval = HZ*num_online_cpus()/10;
+ }
+ 
+-static inline bool update_newidle_cost(struct sched_domain *sd, u64 cost)
++static inline void update_newidle_stats(struct sched_domain *sd, unsigned int success)
+ {
++	sd->newidle_call++;
++	sd->newidle_success += success;
++
++	if (sd->newidle_call >= 1024) {
++		sd->newidle_ratio = sd->newidle_success;
++		sd->newidle_call /= 2;
++		sd->newidle_success /= 2;
++	}
++}
++
++static inline bool
++update_newidle_cost(struct sched_domain *sd, u64 cost, unsigned int success)
++{
++	unsigned long next_decay = sd->last_decay_max_lb_cost + HZ;
++	unsigned long now = jiffies;
++
++	if (cost)
++		update_newidle_stats(sd, success);
++
+ 	if (cost > sd->max_newidle_lb_cost) {
+ 		/*
+ 		 * Track max cost of a domain to make sure to not delay the
+ 		 * next wakeup on the CPU.
+ 		 */
+ 		sd->max_newidle_lb_cost = cost;
+-		sd->last_decay_max_lb_cost = jiffies;
+-	} else if (time_after(jiffies, sd->last_decay_max_lb_cost + HZ)) {
++		sd->last_decay_max_lb_cost = now;
++
++	} else if (time_after(now, next_decay)) {
+ 		/*
+ 		 * Decay the newidle max times by ~1% per second to ensure that
+ 		 * it is not outdated and the current max cost is actually
+ 		 * shorter.
+ 		 */
+ 		sd->max_newidle_lb_cost = (sd->max_newidle_lb_cost * 253) / 256;
+-		sd->last_decay_max_lb_cost = jiffies;
+-
++		sd->last_decay_max_lb_cost = now;
+ 		return true;
+ 	}
+ 
+@@ -12235,7 +12254,7 @@ static void sched_balance_domains(struct rq *rq, enum cpu_idle_type idle)
+ 		 * Decay the newidle max times here because this is a regular
+ 		 * visit to all the domains.
+ 		 */
+-		need_decay = update_newidle_cost(sd, 0);
++		need_decay = update_newidle_cost(sd, 0, 0);
+ 		max_cost += sd->max_newidle_lb_cost;
+ 
+ 		/*
+@@ -12864,14 +12883,16 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
+ 
+ 	rcu_read_lock();
+ 	sd = rcu_dereference_check_sched_domain(this_rq->sd);
++	if (!sd) {
++		rcu_read_unlock();
++		goto out;
++	}
+ 
+ 	if (!get_rd_overloaded(this_rq->rd) ||
+-	    (sd && this_rq->avg_idle < sd->max_newidle_lb_cost)) {
++	    this_rq->avg_idle < sd->max_newidle_lb_cost) {
+ 
+-		if (sd)
+-			update_next_balance(sd, &next_balance);
++		update_next_balance(sd, &next_balance);
+ 		rcu_read_unlock();
+-
+ 		goto out;
+ 	}
+ 	rcu_read_unlock();
+@@ -12891,6 +12912,22 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
+ 			break;
+ 
+ 		if (sd->flags & SD_BALANCE_NEWIDLE) {
++			unsigned int weight = 1;
++
++			if (sched_feat(NI_RANDOM)) {
++				/*
++				 * Throw a 1k sided dice; and only run
++				 * newidle_balance according to the success
++				 * rate.
++				 */
++				u32 d1k = sched_rng() % 1024;
++				weight = 1 + sd->newidle_ratio;
++				if (d1k > weight) {
++					update_newidle_stats(sd, 0);
++					continue;
++				}
++				weight = (1024 + weight/2) / weight;
++			}
+ 
+ 			pulled_task = sched_balance_rq(this_cpu, this_rq,
+ 						   sd, CPU_NEWLY_IDLE,
+@@ -12898,10 +12935,14 @@ static int sched_balance_newidle(struct rq *this_rq, struct rq_flags *rf)
+ 
+ 			t1 = sched_clock_cpu(this_cpu);
+ 			domain_cost = t1 - t0;
+-			update_newidle_cost(sd, domain_cost);
+-
+ 			curr_cost += domain_cost;
+ 			t0 = t1;
++
++			/*
++			 * Track max cost of a domain to make sure to not delay the
++			 * next wakeup on the CPU.
++			 */
++			update_newidle_cost(sd, domain_cost, weight * !!pulled_task);
+ 		}
+ 
+ 		/*
+diff --git a/kernel/sched/features.h b/kernel/sched/features.h
+index 050d7503064e3a..da8ec0c23f25ff 100644
+--- a/kernel/sched/features.h
++++ b/kernel/sched/features.h
+@@ -122,3 +122,8 @@ SCHED_FEAT(WA_BIAS, true)
+ SCHED_FEAT(UTIL_EST, true)
+ 
+ SCHED_FEAT(LATENCY_WARN, false)
++
++/*
++ * Do newidle balancing proportional to its success rate using randomization.
++ */
++SCHED_FEAT(NI_RANDOM, true)
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 6070331772ea71..62f90dcb10a18c 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -5,6 +5,7 @@
+ #ifndef _KERNEL_SCHED_SCHED_H
+ #define _KERNEL_SCHED_SCHED_H
+ 
++#include <linux/prandom.h>
+ #include <linux/sched/affinity.h>
+ #include <linux/sched/autogroup.h>
+ #include <linux/sched/cpufreq.h>
+@@ -1348,6 +1349,12 @@ static inline bool is_migration_disabled(struct task_struct *p)
+ }
+ 
+ DECLARE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
++DECLARE_PER_CPU(struct rnd_state, sched_rnd_state);
++
++static inline u32 sched_rng(void)
++{
++	return prandom_u32_state(this_cpu_ptr(&sched_rnd_state));
++}
+ 
+ #define cpu_rq(cpu)		(&per_cpu(runqueues, (cpu)))
+ #define this_rq()		this_cpu_ptr(&runqueues)
+diff --git a/kernel/sched/topology.c b/kernel/sched/topology.c
+index 4bd825c24e2646..bd8b2b30157097 100644
+--- a/kernel/sched/topology.c
++++ b/kernel/sched/topology.c
+@@ -1632,6 +1632,12 @@ sd_init(struct sched_domain_topology_level *tl,
+ 
+ 		.last_balance		= jiffies,
+ 		.balance_interval	= sd_weight,
++
++		/* 50% success rate */
++		.newidle_call		= 512,
++		.newidle_success	= 256,
++		.newidle_ratio		= 512,
++
+ 		.max_newidle_lb_cost	= 0,
+ 		.last_decay_max_lb_cost	= jiffies,
+ 		.child			= child,
+diff --git a/mm/page_alloc.c b/mm/page_alloc.c
+index 765c890e6a843a..9d43bd47da263c 100644
+--- a/mm/page_alloc.c
++++ b/mm/page_alloc.c
+@@ -744,6 +744,17 @@ buddy_merge_likely(unsigned long pfn, unsigned long buddy_pfn,
+ 			NULL) != NULL;
+ }
+ 
++static void change_pageblock_range(struct page *pageblock_page,
++				   int start_order, int migratetype)
++{
++	int nr_pageblocks = 1 << (start_order - pageblock_order);
++
++	while (nr_pageblocks--) {
++		set_pageblock_migratetype(pageblock_page, migratetype);
++		pageblock_page += pageblock_nr_pages;
++	}
++}
++
+ /*
+  * Freeing function for a buddy system allocator.
+  *
+@@ -830,7 +841,7 @@ static inline void __free_one_page(struct page *page,
+ 			 * expand() down the line puts the sub-blocks
+ 			 * on the right freelists.
+ 			 */
+-			set_pageblock_migratetype(buddy, migratetype);
++			change_pageblock_range(buddy, order, migratetype);
+ 		}
+ 
+ 		combined_pfn = buddy_pfn & pfn;
+@@ -1817,17 +1828,6 @@ move:
+ }
+ #endif /* CONFIG_MEMORY_ISOLATION */
+ 
+-static void change_pageblock_range(struct page *pageblock_page,
+-					int start_order, int migratetype)
+-{
+-	int nr_pageblocks = 1 << (start_order - pageblock_order);
+-
+-	while (nr_pageblocks--) {
+-		set_pageblock_migratetype(pageblock_page, migratetype);
+-		pageblock_page += pageblock_nr_pages;
+-	}
+-}
+-
+ /*
+  * When we are falling back to another migratetype during allocation, try to
+  * steal extra free pages from the same pageblocks to satisfy further
+diff --git a/net/bridge/br_ioctl.c b/net/bridge/br_ioctl.c
+index f213ed10836185..6bc0a11f2ed3e6 100644
+--- a/net/bridge/br_ioctl.c
++++ b/net/bridge/br_ioctl.c
+@@ -394,10 +394,26 @@ static int old_deviceless(struct net *net, void __user *data)
+ 	return -EOPNOTSUPP;
+ }
+ 
+-int br_ioctl_stub(struct net *net, struct net_bridge *br, unsigned int cmd,
+-		  struct ifreq *ifr, void __user *uarg)
++int br_ioctl_stub(struct net *net, unsigned int cmd, void __user *uarg)
+ {
+ 	int ret = -EOPNOTSUPP;
++	struct ifreq ifr;
++
++	if (cmd == SIOCBRADDIF || cmd == SIOCBRDELIF) {
++		void __user *data;
++		char *colon;
++
++		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
++			return -EPERM;
++
++		if (get_user_ifreq(&ifr, &data, uarg))
++			return -EFAULT;
++
++		ifr.ifr_name[IFNAMSIZ - 1] = 0;
++		colon = strchr(ifr.ifr_name, ':');
++		if (colon)
++			*colon = 0;
++	}
+ 
+ 	rtnl_lock();
+ 
+@@ -430,7 +446,21 @@ int br_ioctl_stub(struct net *net, struct net_bridge *br, unsigned int cmd,
+ 		break;
+ 	case SIOCBRADDIF:
+ 	case SIOCBRDELIF:
+-		ret = add_del_if(br, ifr->ifr_ifindex, cmd == SIOCBRADDIF);
++	{
++		struct net_device *dev;
++
++		dev = __dev_get_by_name(net, ifr.ifr_name);
++		if (!dev || !netif_device_present(dev)) {
++			ret = -ENODEV;
++			break;
++		}
++		if (!netif_is_bridge_master(dev)) {
++			ret = -EOPNOTSUPP;
++			break;
++		}
++
++		ret = add_del_if(netdev_priv(dev), ifr.ifr_ifindex, cmd == SIOCBRADDIF);
++	}
+ 		break;
+ 	}
+ 
+diff --git a/net/bridge/br_private.h b/net/bridge/br_private.h
+index a2e59108a5dc8a..b2e4e2d04f02b8 100644
+--- a/net/bridge/br_private.h
++++ b/net/bridge/br_private.h
+@@ -953,8 +953,7 @@ br_port_get_check_rtnl(const struct net_device *dev)
+ /* br_ioctl.c */
+ int br_dev_siocdevprivate(struct net_device *dev, struct ifreq *rq,
+ 			  void __user *data, int cmd);
+-int br_ioctl_stub(struct net *net, struct net_bridge *br, unsigned int cmd,
+-		  struct ifreq *ifr, void __user *uarg);
++int br_ioctl_stub(struct net *net, unsigned int cmd, void __user *uarg);
+ 
+ /* br_multicast.c */
+ #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
+diff --git a/net/core/dev_ioctl.c b/net/core/dev_ioctl.c
+index 473c437b6b5386..81cd8df798c0a0 100644
+--- a/net/core/dev_ioctl.c
++++ b/net/core/dev_ioctl.c
+@@ -514,7 +514,6 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, void __user *data,
+ 	int err;
+ 	struct net_device *dev = __dev_get_by_name(net, ifr->ifr_name);
+ 	const struct net_device_ops *ops;
+-	netdevice_tracker dev_tracker;
+ 
+ 	if (!dev)
+ 		return -ENODEV;
+@@ -577,19 +576,6 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, void __user *data,
+ 	case SIOCWANDEV:
+ 		return dev_siocwandev(dev, &ifr->ifr_settings);
+ 
+-	case SIOCBRADDIF:
+-	case SIOCBRDELIF:
+-		if (!netif_device_present(dev))
+-			return -ENODEV;
+-		if (!netif_is_bridge_master(dev))
+-			return -EOPNOTSUPP;
+-		netdev_hold(dev, &dev_tracker, GFP_KERNEL);
+-		rtnl_unlock();
+-		err = br_ioctl_call(net, netdev_priv(dev), cmd, ifr, NULL);
+-		netdev_put(dev, &dev_tracker);
+-		rtnl_lock();
+-		return err;
+-
+ 	case SIOCDEVPRIVATE ... SIOCDEVPRIVATE + 15:
+ 		return dev_siocdevprivate(dev, ifr, data, cmd);
+ 
+@@ -770,8 +756,6 @@ int dev_ioctl(struct net *net, unsigned int cmd, struct ifreq *ifr,
+ 	case SIOCBONDRELEASE:
+ 	case SIOCBONDSETHWADDR:
+ 	case SIOCBONDCHANGEACTIVE:
+-	case SIOCBRADDIF:
+-	case SIOCBRDELIF:
+ 	case SIOCSHWTSTAMP:
+ 		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
+ 			return -EPERM;
+diff --git a/net/mac80211/rx.c b/net/mac80211/rx.c
+index ea6fe21c96c555..e4a3ce716f6b54 100644
+--- a/net/mac80211/rx.c
++++ b/net/mac80211/rx.c
+@@ -3426,6 +3426,11 @@ ieee80211_rx_h_mgmt_check(struct ieee80211_rx_data *rx)
+ 	    rx->skb->len < IEEE80211_MIN_ACTION_SIZE)
+ 		return RX_DROP_U_RUNT_ACTION;
+ 
++	/* Drop non-broadcast Beacon frames */
++	if (ieee80211_is_beacon(mgmt->frame_control) &&
++	    !is_broadcast_ether_addr(mgmt->da))
++		return RX_DROP_MONITOR;
++
+ 	if (rx->sdata->vif.type == NL80211_IFTYPE_AP &&
+ 	    ieee80211_is_beacon(mgmt->frame_control) &&
+ 	    !(rx->flags & IEEE80211_RX_BEACON_REPORTED)) {
+diff --git a/net/mptcp/options.c b/net/mptcp/options.c
+index bc089388530b8f..b9c8205fadbf13 100644
+--- a/net/mptcp/options.c
++++ b/net/mptcp/options.c
+@@ -408,6 +408,16 @@ bool mptcp_syn_options(struct sock *sk, const struct sk_buff *skb,
+ 	 */
+ 	subflow->snd_isn = TCP_SKB_CB(skb)->end_seq;
+ 	if (subflow->request_mptcp) {
++		if (unlikely(subflow_simultaneous_connect(sk))) {
++			WARN_ON_ONCE(!mptcp_try_fallback(sk));
++
++			/* Ensure mptcp_finish_connect() will not process the
++			 * MPC handshake.
++			 */
++			subflow->request_mptcp = 0;
++			return false;
++		}
++
+ 		opts->suboptions = OPTION_MPTCP_MPC_SYN;
+ 		opts->csum_reqd = mptcp_is_checksum_enabled(sock_net(sk));
+ 		opts->allow_join_id0 = mptcp_allow_join_id0(sock_net(sk));
+diff --git a/net/mptcp/protocol.c b/net/mptcp/protocol.c
+index aab3c96ecd1c3d..790feade9bf2bf 100644
+--- a/net/mptcp/protocol.c
++++ b/net/mptcp/protocol.c
+@@ -2478,10 +2478,10 @@ bool __mptcp_retransmit_pending_data(struct sock *sk)
+  */
+ static void __mptcp_subflow_disconnect(struct sock *ssk,
+ 				       struct mptcp_subflow_context *subflow,
+-				       unsigned int flags)
++				       bool fastclosing)
+ {
+ 	if (((1 << ssk->sk_state) & (TCPF_CLOSE | TCPF_LISTEN)) ||
+-	    subflow->send_fastclose) {
++	    fastclosing) {
+ 		/* The MPTCP code never wait on the subflow sockets, TCP-level
+ 		 * disconnect should never fail
+ 		 */
+@@ -2533,7 +2533,7 @@ static void __mptcp_close_ssk(struct sock *sk, struct sock *ssk,
+ 
+ 	need_push = (flags & MPTCP_CF_PUSH) && __mptcp_retransmit_pending_data(sk);
+ 	if (!dispose_it) {
+-		__mptcp_subflow_disconnect(ssk, subflow, flags);
++		__mptcp_subflow_disconnect(ssk, subflow, msk->fastclosing);
+ 		release_sock(ssk);
+ 
+ 		goto out;
+@@ -2845,6 +2845,7 @@ static void mptcp_do_fastclose(struct sock *sk)
+ 	struct mptcp_sock *msk = mptcp_sk(sk);
+ 
+ 	mptcp_set_state(sk, TCP_CLOSE);
++	msk->fastclosing = 1;
+ 
+ 	/* Explicitly send the fastclose reset as need */
+ 	if (__mptcp_check_fallback(msk))
+@@ -3362,6 +3363,7 @@ static int mptcp_disconnect(struct sock *sk, int flags)
+ 	msk->bytes_sent = 0;
+ 	msk->bytes_retrans = 0;
+ 	msk->rcvspace_init = 0;
++	msk->fastclosing = 0;
+ 
+ 	WRITE_ONCE(sk->sk_shutdown, 0);
+ 	sk_error_report(sk);
+diff --git a/net/mptcp/protocol.h b/net/mptcp/protocol.h
+index 73b8423506779d..bdec5ad9defb98 100644
+--- a/net/mptcp/protocol.h
++++ b/net/mptcp/protocol.h
+@@ -316,7 +316,8 @@ struct mptcp_sock {
+ 			fastopening:1,
+ 			in_accept_queue:1,
+ 			free_first:1,
+-			rcvspace_init:1;
++			rcvspace_init:1,
++			fastclosing:1;
+ 	u32		notsent_lowat;
+ 	int		keepalive_cnt;
+ 	int		keepalive_idle;
+@@ -1283,10 +1284,8 @@ static inline bool subflow_simultaneous_connect(struct sock *sk)
+ {
+ 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
+ 
+-	return (1 << sk->sk_state) &
+-	       (TCPF_ESTABLISHED | TCPF_FIN_WAIT1 | TCPF_FIN_WAIT2 | TCPF_CLOSING) &&
+-	       is_active_ssk(subflow) &&
+-	       !subflow->conn_finished;
++	/* Note that the sk state implies !subflow->conn_finished. */
++	return sk->sk_state == TCP_SYN_RECV && is_active_ssk(subflow);
+ }
+ 
+ #ifdef CONFIG_SYN_COOKIES
+diff --git a/net/mptcp/subflow.c b/net/mptcp/subflow.c
+index e3d4ed49e5885c..1618483b05e8ab 100644
+--- a/net/mptcp/subflow.c
++++ b/net/mptcp/subflow.c
+@@ -1848,18 +1848,10 @@ static void subflow_state_change(struct sock *sk)
+ {
+ 	struct mptcp_subflow_context *subflow = mptcp_subflow_ctx(sk);
+ 	struct sock *parent = subflow->conn;
+-	struct mptcp_sock *msk;
++	struct mptcp_sock *msk = mptcp_sk(parent);
+ 
+ 	__subflow_state_change(sk);
+ 
+-	msk = mptcp_sk(parent);
+-	if (subflow_simultaneous_connect(sk)) {
+-		WARN_ON_ONCE(!mptcp_try_fallback(sk));
+-		pr_fallback(msk);
+-		subflow->conn_finished = 1;
+-		mptcp_propagate_state(parent, sk, subflow, NULL);
+-	}
+-
+ 	/* as recvmsg() does not acquire the subflow socket for ssk selection
+ 	 * a fin packet carrying a DSS can be unnoticed if we don't trigger
+ 	 * the data available machinery here.
+diff --git a/net/socket.c b/net/socket.c
+index 042451f01c6520..a0f6f8b3376d5d 100644
+--- a/net/socket.c
++++ b/net/socket.c
+@@ -1173,12 +1173,10 @@ static ssize_t sock_write_iter(struct kiocb *iocb, struct iov_iter *from)
+  */
+ 
+ static DEFINE_MUTEX(br_ioctl_mutex);
+-static int (*br_ioctl_hook)(struct net *net, struct net_bridge *br,
+-			    unsigned int cmd, struct ifreq *ifr,
++static int (*br_ioctl_hook)(struct net *net, unsigned int cmd,
+ 			    void __user *uarg);
+ 
+-void brioctl_set(int (*hook)(struct net *net, struct net_bridge *br,
+-			     unsigned int cmd, struct ifreq *ifr,
++void brioctl_set(int (*hook)(struct net *net, unsigned int cmd,
+ 			     void __user *uarg))
+ {
+ 	mutex_lock(&br_ioctl_mutex);
+@@ -1187,8 +1185,7 @@ void brioctl_set(int (*hook)(struct net *net, struct net_bridge *br,
+ }
+ EXPORT_SYMBOL(brioctl_set);
+ 
+-int br_ioctl_call(struct net *net, struct net_bridge *br, unsigned int cmd,
+-		  struct ifreq *ifr, void __user *uarg)
++int br_ioctl_call(struct net *net, unsigned int cmd, void __user *uarg)
+ {
+ 	int err = -ENOPKG;
+ 
+@@ -1197,7 +1194,7 @@ int br_ioctl_call(struct net *net, struct net_bridge *br, unsigned int cmd,
+ 
+ 	mutex_lock(&br_ioctl_mutex);
+ 	if (br_ioctl_hook)
+-		err = br_ioctl_hook(net, br, cmd, ifr, uarg);
++		err = br_ioctl_hook(net, cmd, uarg);
+ 	mutex_unlock(&br_ioctl_mutex);
+ 
+ 	return err;
+@@ -1297,7 +1294,9 @@ static long sock_ioctl(struct file *file, unsigned cmd, unsigned long arg)
+ 		case SIOCSIFBR:
+ 		case SIOCBRADDBR:
+ 		case SIOCBRDELBR:
+-			err = br_ioctl_call(net, NULL, cmd, NULL, argp);
++		case SIOCBRADDIF:
++		case SIOCBRDELIF:
++			err = br_ioctl_call(net, cmd, argp);
+ 			break;
+ 		case SIOCGIFVLAN:
+ 		case SIOCSIFVLAN:
+@@ -3466,6 +3465,8 @@ static int compat_sock_ioctl_trans(struct file *file, struct socket *sock,
+ 	case SIOCGPGRP:
+ 	case SIOCBRADDBR:
+ 	case SIOCBRDELBR:
++	case SIOCBRADDIF:
++	case SIOCBRDELIF:
+ 	case SIOCGIFVLAN:
+ 	case SIOCSIFVLAN:
+ 	case SIOCGSKNS:
+@@ -3505,8 +3506,6 @@ static int compat_sock_ioctl_trans(struct file *file, struct socket *sock,
+ 	case SIOCGIFPFLAGS:
+ 	case SIOCGIFTXQLEN:
+ 	case SIOCSIFTXQLEN:
+-	case SIOCBRADDIF:
+-	case SIOCBRDELIF:
+ 	case SIOCGIFNAME:
+ 	case SIOCSIFNAME:
+ 	case SIOCGMIIPHY:

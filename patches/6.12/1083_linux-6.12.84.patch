@@ -1,0 +1,1320 @@
+diff --git a/Makefile b/Makefile
+index 3f7b3d84d56c69..753ed850c462d7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 12
+-SUBLEVEL = 83
++SUBLEVEL = 84
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/drivers/crypto/ccp/sev-dev.c b/drivers/crypto/ccp/sev-dev.c
+index 3016d1369ac517..00524bcfc57eb7 100644
+--- a/drivers/crypto/ccp/sev-dev.c
++++ b/drivers/crypto/ccp/sev-dev.c
+@@ -1541,7 +1541,10 @@ cmd:
+ 
+ 	ret = __sev_do_cmd_locked(SEV_CMD_PEK_CSR, &data, &argp->error);
+ 
+-	 /* If we query the CSR length, FW responded with expected data. */
++	/*
++	 * Firmware will returns the length of the CSR blob (either the minimum
++	 * required length or the actual length written), return it to the user.
++	 */
+ 	input.length = data.len;
+ 
+ 	if (copy_to_user((void __user *)argp->data, &input, sizeof(input))) {
+@@ -1549,6 +1552,9 @@ cmd:
+ 		goto e_free_blob;
+ 	}
+ 
++	if (ret || WARN_ON_ONCE(argp->error))
++		goto e_free_blob;
++
+ 	if (blob) {
+ 		if (copy_to_user(input_address, blob, input.length))
+ 			ret = -EFAULT;
+@@ -1870,6 +1876,9 @@ static int sev_ioctl_do_get_id2(struct sev_issue_cmd *argp)
+ 		goto e_free;
+ 	}
+ 
++	if (ret || WARN_ON_ONCE(argp->error))
++		goto e_free;
++
+ 	if (id_blob) {
+ 		if (copy_to_user(input_address, id_blob, data.len)) {
+ 			ret = -EFAULT;
+@@ -1986,7 +1995,10 @@ cmd:
+ 
+ 	ret = __sev_do_cmd_locked(SEV_CMD_PDH_CERT_EXPORT, &data, &argp->error);
+ 
+-	/* If we query the length, FW responded with expected data. */
++	/*
++	 * Firmware will return the length of the blobs (either the minimum
++	 * required length or the actual length written), return 'em to the user.
++	 */
+ 	input.cert_chain_len = data.cert_chain_len;
+ 	input.pdh_cert_len = data.pdh_cert_len;
+ 
+@@ -1995,6 +2007,9 @@ cmd:
+ 		goto e_free_cert;
+ 	}
+ 
++	if (ret || WARN_ON_ONCE(argp->error))
++		goto e_free_cert;
++
+ 	if (pdh_blob) {
+ 		if (copy_to_user(input_pdh_cert_address,
+ 				 pdh_blob, input.pdh_cert_len)) {
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_ids.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_ids.c
+index a1720ae99dea2a..12e73351d6ffd3 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_ids.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_ids.c
+@@ -22,7 +22,7 @@
+  */
+ #include "amdgpu_ids.h"
+ 
+-#include <linux/idr.h>
++#include <linux/xarray.h>
+ #include <linux/dma-fence-array.h>
+ 
+ 
+@@ -40,8 +40,8 @@
+  * VMs are looked up from the PASID per amdgpu_device.
+  */
+ 
+-static DEFINE_IDR(amdgpu_pasid_idr);
+-static DEFINE_SPINLOCK(amdgpu_pasid_idr_lock);
++static DEFINE_XARRAY_FLAGS(amdgpu_pasid_xa, XA_FLAGS_LOCK_IRQ | XA_FLAGS_ALLOC1);
++static u32 amdgpu_pasid_xa_next;
+ 
+ /* Helper to free pasid from a fence callback */
+ struct amdgpu_pasid_cb {
+@@ -62,36 +62,37 @@ struct amdgpu_pasid_cb {
+  */
+ int amdgpu_pasid_alloc(unsigned int bits)
+ {
+-	int pasid;
++	u32 pasid;
++	int r;
+ 
+ 	if (bits == 0)
+ 		return -EINVAL;
+ 
+-	spin_lock(&amdgpu_pasid_idr_lock);
+-	/* TODO: Need to replace the idr with an xarry, and then
+-	 * handle the internal locking with ATOMIC safe paths.
+-	 */
+-	pasid = idr_alloc_cyclic(&amdgpu_pasid_idr, NULL, 1,
+-				 1U << bits, GFP_ATOMIC);
+-	spin_unlock(&amdgpu_pasid_idr_lock);
+-
+-	if (pasid >= 0)
+-		trace_amdgpu_pasid_allocated(pasid);
++	r = xa_alloc_cyclic_irq(&amdgpu_pasid_xa, &pasid, xa_mk_value(0),
++			    XA_LIMIT(1, (1U << bits) - 1),
++			    &amdgpu_pasid_xa_next, GFP_KERNEL);
++	if (r < 0)
++		return r;
+ 
++	trace_amdgpu_pasid_allocated(pasid);
+ 	return pasid;
+ }
+ 
+ /**
+  * amdgpu_pasid_free - Free a PASID
+  * @pasid: PASID to free
++ *
++ * Called in IRQ context.
+  */
+ void amdgpu_pasid_free(u32 pasid)
+ {
++	unsigned long flags;
++
+ 	trace_amdgpu_pasid_freed(pasid);
+ 
+-	spin_lock(&amdgpu_pasid_idr_lock);
+-	idr_remove(&amdgpu_pasid_idr, pasid);
+-	spin_unlock(&amdgpu_pasid_idr_lock);
++	xa_lock_irqsave(&amdgpu_pasid_xa, flags);
++	__xa_erase(&amdgpu_pasid_xa, pasid);
++	xa_unlock_irqrestore(&amdgpu_pasid_xa, flags);
+ }
+ 
+ static void amdgpu_pasid_free_cb(struct dma_fence *fence,
+@@ -653,7 +654,5 @@ void amdgpu_vmid_mgr_fini(struct amdgpu_device *adev)
+  */
+ void amdgpu_pasid_mgr_cleanup(void)
+ {
+-	spin_lock(&amdgpu_pasid_idr_lock);
+-	idr_destroy(&amdgpu_pasid_idr);
+-	spin_unlock(&amdgpu_pasid_idr_lock);
++	xa_destroy(&amdgpu_pasid_xa);
+ }
+diff --git a/drivers/net/ethernet/mediatek/mtk_eth_soc.c b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+index 45d4bac984a52d..7406b706fb7530 100644
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -3384,12 +3384,23 @@ found:
+ 	return NOTIFY_DONE;
+ }
+ 
++static int mtk_max_gmac_mtu(struct mtk_eth *eth)
++{
++	int i, max_mtu = ETH_DATA_LEN;
++
++	for (i = 0; i < ARRAY_SIZE(eth->netdev); i++)
++		if (eth->netdev[i] && eth->netdev[i]->mtu > max_mtu)
++			max_mtu = eth->netdev[i]->mtu;
++
++	return max_mtu;
++}
++
+ static int mtk_open(struct net_device *dev)
+ {
+ 	struct mtk_mac *mac = netdev_priv(dev);
+ 	struct mtk_eth *eth = mac->hw;
+ 	struct mtk_mac *target_mac;
+-	int i, err, ppe_num;
++	int i, err, ppe_num, mtu;
+ 
+ 	ppe_num = eth->soc->ppe_num;
+ 
+@@ -3436,6 +3447,10 @@ static int mtk_open(struct net_device *dev)
+ 			mtk_gdm_config(eth, target_mac->id, gdm_config);
+ 		}
+ 
++		mtu = mtk_max_gmac_mtu(eth);
++		for (i = 0; i < ARRAY_SIZE(eth->ppe); i++)
++			mtk_ppe_update_mtu(eth->ppe[i], mtu);
++
+ 		napi_enable(&eth->tx_napi);
+ 		napi_enable(&eth->rx_napi);
+ 		mtk_tx_irq_enable(eth, MTK_TX_DONE_INT);
+@@ -4129,6 +4144,7 @@ static int mtk_change_mtu(struct net_device *dev, int new_mtu)
+ 	int length = new_mtu + MTK_RX_ETH_HLEN;
+ 	struct mtk_mac *mac = netdev_priv(dev);
+ 	struct mtk_eth *eth = mac->hw;
++	int max_mtu, i;
+ 
+ 	if (rcu_access_pointer(eth->prog) &&
+ 	    length > MTK_PP_MAX_BUF_SIZE) {
+@@ -4139,6 +4155,10 @@ static int mtk_change_mtu(struct net_device *dev, int new_mtu)
+ 	mtk_set_mcr_max_rx(mac, length);
+ 	WRITE_ONCE(dev->mtu, new_mtu);
+ 
++	max_mtu = mtk_max_gmac_mtu(eth);
++	for (i = 0; i < ARRAY_SIZE(eth->ppe); i++)
++		mtk_ppe_update_mtu(eth->ppe[i], max_mtu);
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/net/ethernet/mediatek/mtk_ppe.c b/drivers/net/ethernet/mediatek/mtk_ppe.c
+index ada852adc5f702..fa688a42a22f5c 100644
+--- a/drivers/net/ethernet/mediatek/mtk_ppe.c
++++ b/drivers/net/ethernet/mediatek/mtk_ppe.c
+@@ -973,6 +973,36 @@ static void mtk_ppe_init_foe_table(struct mtk_ppe *ppe)
+ 	}
+ }
+ 
++void mtk_ppe_update_mtu(struct mtk_ppe *ppe, int mtu)
++{
++	int base;
++	u32 val;
++
++	if (!ppe)
++		return;
++
++	/* The PPE checks output frame size against per-tag-layer MTU limits,
++	 * treating PPPoE and DSA tags just like 802.1Q VLAN tags. The Linux
++	 * device MTU already accounts for PPPoE (PPPOE_SES_HLEN) and DSA tag
++	 * overhead, but 802.1Q VLAN tags are handled transparently without
++	 * being reflected by the lower device MTU being increased by 4.
++	 * Use the maximum MTU across all GMAC interfaces so that PPE output
++	 * frame limits are sufficiently high regardless of which port a flow
++	 * egresses through.
++	 */
++	base = ETH_HLEN + mtu;
++
++	val = FIELD_PREP(MTK_PPE_VLAN_MTU0_NONE, base) |
++	      FIELD_PREP(MTK_PPE_VLAN_MTU0_1TAG, base + VLAN_HLEN);
++	ppe_w32(ppe, MTK_PPE_VLAN_MTU0, val);
++
++	val = FIELD_PREP(MTK_PPE_VLAN_MTU1_2TAG,
++			 base + 2 * VLAN_HLEN) |
++	      FIELD_PREP(MTK_PPE_VLAN_MTU1_3TAG,
++			 base + 3 * VLAN_HLEN);
++	ppe_w32(ppe, MTK_PPE_VLAN_MTU1, val);
++}
++
+ void mtk_ppe_start(struct mtk_ppe *ppe)
+ {
+ 	u32 val;
+diff --git a/drivers/net/ethernet/mediatek/mtk_ppe.h b/drivers/net/ethernet/mediatek/mtk_ppe.h
+index 223f709e2704f8..ba85e39a155bf9 100644
+--- a/drivers/net/ethernet/mediatek/mtk_ppe.h
++++ b/drivers/net/ethernet/mediatek/mtk_ppe.h
+@@ -346,6 +346,7 @@ struct mtk_ppe {
+ struct mtk_ppe *mtk_ppe_init(struct mtk_eth *eth, void __iomem *base, int index);
+ 
+ void mtk_ppe_deinit(struct mtk_eth *eth);
++void mtk_ppe_update_mtu(struct mtk_ppe *ppe, int mtu);
+ void mtk_ppe_start(struct mtk_ppe *ppe);
+ int mtk_ppe_stop(struct mtk_ppe *ppe);
+ int mtk_ppe_prepare_reset(struct mtk_ppe *ppe);
+diff --git a/drivers/net/wireless/ath/ath9k/channel.c b/drivers/net/wireless/ath/ath9k/channel.c
+index 571062f2e82a7b..ba8ec5112afe89 100644
+--- a/drivers/net/wireless/ath/ath9k/channel.c
++++ b/drivers/net/wireless/ath/ath9k/channel.c
+@@ -1011,7 +1011,7 @@ static void ath_scan_send_probe(struct ath_softc *sc,
+ 	skb_set_queue_mapping(skb, IEEE80211_AC_VO);
+ 
+ 	if (!ieee80211_tx_prepare_skb(sc->hw, vif, skb, band, NULL))
+-		goto error;
++		return;
+ 
+ 	txctl.txq = sc->tx.txq_map[IEEE80211_AC_VO];
+ 	if (ath_tx_start(sc->hw, skb, &txctl))
+@@ -1124,10 +1124,8 @@ ath_chanctx_send_vif_ps_frame(struct ath_softc *sc, struct ath_vif *avp,
+ 
+ 		skb->priority = 7;
+ 		skb_set_queue_mapping(skb, IEEE80211_AC_VO);
+-		if (!ieee80211_tx_prepare_skb(sc->hw, vif, skb, band, &sta)) {
+-			dev_kfree_skb_any(skb);
++		if (!ieee80211_tx_prepare_skb(sc->hw, vif, skb, band, &sta))
+ 			return false;
+-		}
+ 		break;
+ 	default:
+ 		return false;
+diff --git a/drivers/net/wireless/virtual/mac80211_hwsim.c b/drivers/net/wireless/virtual/mac80211_hwsim.c
+index 8b4fd5fd11b0e4..e992e59b591892 100644
+--- a/drivers/net/wireless/virtual/mac80211_hwsim.c
++++ b/drivers/net/wireless/virtual/mac80211_hwsim.c
+@@ -2977,7 +2977,6 @@ static void hw_scan_work(struct work_struct *work)
+ 						      hwsim->tmp_chan->band,
+ 						      NULL)) {
+ 				rcu_read_unlock();
+-				kfree_skb(probe);
+ 				continue;
+ 			}
+ 
+diff --git a/drivers/pci/endpoint/functions/pci-epf-vntb.c b/drivers/pci/endpoint/functions/pci-epf-vntb.c
+index be2277cb9b637b..6875af691b2de6 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-vntb.c
++++ b/drivers/pci/endpoint/functions/pci-epf-vntb.c
+@@ -662,18 +662,6 @@ static void epf_ntb_mw_bar_clear(struct epf_ntb *ntb, int num_mws)
+ 	}
+ }
+ 
+-/**
+- * epf_ntb_epc_destroy() - Cleanup NTB EPC interface
+- * @ntb: NTB device that facilitates communication between HOST and VHOST
+- *
+- * Wrapper for epf_ntb_epc_destroy_interface() to cleanup all the NTB interfaces
+- */
+-static void epf_ntb_epc_destroy(struct epf_ntb *ntb)
+-{
+-	pci_epc_remove_epf(ntb->epf->epc, ntb->epf, 0);
+-	pci_epc_put(ntb->epf->epc);
+-}
+-
+ /**
+  * epf_ntb_init_epc_bar() - Identify BARs to be used for each of the NTB
+  * constructs (scratchpad region, doorbell, memorywindow)
+@@ -1315,7 +1303,7 @@ static int epf_ntb_bind(struct pci_epf *epf)
+ 	ret = epf_ntb_init_epc_bar(ntb);
+ 	if (ret) {
+ 		dev_err(dev, "Failed to create NTB EPC\n");
+-		goto err_bar_init;
++		return ret;
+ 	}
+ 
+ 	ret = epf_ntb_config_spad_bar_alloc(ntb);
+@@ -1355,9 +1343,6 @@ err_epc_cleanup:
+ err_bar_alloc:
+ 	epf_ntb_config_spad_bar_free(ntb);
+ 
+-err_bar_init:
+-	epf_ntb_epc_destroy(ntb);
+-
+ 	return ret;
+ }
+ 
+@@ -1373,7 +1358,6 @@ static void epf_ntb_unbind(struct pci_epf *epf)
+ 
+ 	epf_ntb_epc_cleanup(ntb);
+ 	epf_ntb_config_spad_bar_free(ntb);
+-	epf_ntb_epc_destroy(ntb);
+ 
+ 	pci_unregister_driver(&vntb_pci_driver);
+ }
+diff --git a/fs/f2fs/compress.c b/fs/f2fs/compress.c
+index cda7952526aacc..c2ec80c82b6de5 100644
+--- a/fs/f2fs/compress.c
++++ b/fs/f2fs/compress.c
+@@ -1472,10 +1472,10 @@ void f2fs_compress_write_end_io(struct bio *bio, struct page *page)
+ 
+ 	f2fs_compress_free_page(page);
+ 
+-	dec_page_count(sbi, type);
+-
+-	if (atomic_dec_return(&cic->pending_pages))
++	if (atomic_dec_return(&cic->pending_pages)) {
++		dec_page_count(sbi, type);
+ 		return;
++	}
+ 
+ 	for (i = 0; i < cic->nr_rpages; i++) {
+ 		WARN_ON(!cic->rpages[i]);
+@@ -1485,6 +1485,14 @@ void f2fs_compress_write_end_io(struct bio *bio, struct page *page)
+ 
+ 	page_array_free(sbi, cic->rpages, cic->nr_rpages);
+ 	kmem_cache_free(cic_entry_slab, cic);
++
++	/*
++	 * Make sure dec_page_count() is the last access to sbi.
++	 * Once it drops the F2FS_WB_CP_DATA counter to zero, the
++	 * unmount thread can proceed to destroy sbi and
++	 * sbi->page_array_slab.
++	 */
++	dec_page_count(sbi, type);
+ }
+ 
+ static int f2fs_write_raw_pages(struct compress_ctx *cc,
+diff --git a/fs/f2fs/namei.c b/fs/f2fs/namei.c
+index 05e802c1286d28..da213cd39fc70c 100644
+--- a/fs/f2fs/namei.c
++++ b/fs/f2fs/namei.c
+@@ -940,6 +940,7 @@ static int f2fs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
+ 			return err;
+ 
+ 		err = f2fs_create_whiteout(idmap, old_dir, &whiteout, &fname);
++		f2fs_free_filename(&fname);
+ 		if (err)
+ 			return err;
+ 	}
+diff --git a/fs/fuse/control.c b/fs/fuse/control.c
+index 2a730d88cc3bdb..7370d9a653577d 100644
+--- a/fs/fuse/control.c
++++ b/fs/fuse/control.c
+@@ -120,7 +120,7 @@ static ssize_t fuse_conn_max_background_write(struct file *file,
+ 					      const char __user *buf,
+ 					      size_t count, loff_t *ppos)
+ {
+-	unsigned val;
++	unsigned int val = 0;
+ 	ssize_t ret;
+ 
+ 	ret = fuse_conn_limit_write(file, buf, count, ppos, &val,
+@@ -162,7 +162,7 @@ static ssize_t fuse_conn_congestion_threshold_write(struct file *file,
+ 						    const char __user *buf,
+ 						    size_t count, loff_t *ppos)
+ {
+-	unsigned val;
++	unsigned int val = 0;
+ 	struct fuse_conn *fc;
+ 	ssize_t ret;
+ 
+diff --git a/fs/fuse/dev.c b/fs/fuse/dev.c
+index 8207855f9af257..1a6efb7cd945b0 100644
+--- a/fs/fuse/dev.c
++++ b/fs/fuse/dev.c
+@@ -871,6 +871,9 @@ static int fuse_try_move_page(struct fuse_copy_state *cs, struct page **pagep)
+ 	folio_clear_uptodate(newfolio);
+ 	folio_clear_mappedtodisk(newfolio);
+ 
++	if (folio_test_large(newfolio))
++		goto out_fallback_unlock;
++
+ 	if (fuse_check_folio(newfolio) != 0)
+ 		goto out_fallback_unlock;
+ 
+diff --git a/fs/fuse/readdir.c b/fs/fuse/readdir.c
+index 0377b6dc24c80d..78e6ad3f86176e 100644
+--- a/fs/fuse/readdir.c
++++ b/fs/fuse/readdir.c
+@@ -41,6 +41,10 @@ static void fuse_add_dirent_to_cache(struct file *file,
+ 	unsigned int offset;
+ 	void *addr;
+ 
++	/* Dirent doesn't fit in readdir cache page?  Skip caching. */
++	if (reclen > PAGE_SIZE)
++		return;
++
+ 	spin_lock(&fi->rdc.lock);
+ 	/*
+ 	 * Is cache already completed?  Or this entry does not go at the end of
+diff --git a/fs/ntfs3/fslog.c b/fs/ntfs3/fslog.c
+index 5afe00972924c4..b8d2827873a336 100644
+--- a/fs/ntfs3/fslog.c
++++ b/fs/ntfs3/fslog.c
+@@ -2789,13 +2789,14 @@ static inline bool check_file_record(const struct MFT_REC *rec,
+ 	u16 fn = le16_to_cpu(rec->rhdr.fix_num);
+ 	u16 ao = le16_to_cpu(rec->attr_off);
+ 	u32 rs = sbi->record_size;
++	u32 used = le32_to_cpu(rec->used);
+ 
+ 	/* Check the file record header for consistency. */
+ 	if (rec->rhdr.sign != NTFS_FILE_SIGNATURE ||
+ 	    fo > (SECTOR_SIZE - ((rs >> SECTOR_SHIFT) + 1) * sizeof(short)) ||
+ 	    (fn - 1) * SECTOR_SIZE != rs || ao < MFTRECORD_FIXUP_OFFSET_1 ||
+ 	    ao > sbi->record_size - SIZEOF_RESIDENT || !is_rec_inuse(rec) ||
+-	    le32_to_cpu(rec->total) != rs) {
++	    le32_to_cpu(rec->total) != rs || used > rs || used < ao) {
+ 		return false;
+ 	}
+ 
+@@ -2807,6 +2808,15 @@ static inline bool check_file_record(const struct MFT_REC *rec,
+ 		return false;
+ 	}
+ 
++	/*
++	 * The do_action() handlers compute memmove lengths as
++	 * "rec->used - <offset of validated attr>", which underflows when
++	 * rec->used is smaller than the attribute walk reached.  At this
++	 * point attr is the ATTR_END marker; rec->used must cover it.
++	 */
++	if (used < PtrOffset(rec, attr) + sizeof(attr->type))
++		return false;
++
+ 	return true;
+ }
+ 
+diff --git a/fs/smb/client/cifsacl.c b/fs/smb/client/cifsacl.c
+index 9a73478e00688b..3c709b213b924e 100644
+--- a/fs/smb/client/cifsacl.c
++++ b/fs/smb/client/cifsacl.c
+@@ -832,6 +832,7 @@ static void parse_dacl(struct smb_acl *pdacl, char *end_of_acl,
+ 			dump_ace(ppace[i], end_of_acl);
+ #endif
+ 			if (mode_from_special_sid &&
++			    ppace[i]->sid.num_subauth >= 3 &&
+ 			    (compare_sids(&(ppace[i]->sid),
+ 					  &sid_unix_NFS_mode) == 0)) {
+ 				/*
+diff --git a/fs/smb/client/smb2ops.c b/fs/smb/client/smb2ops.c
+index 44001b1ab79b7e..6a7e8a3c77afed 100644
+--- a/fs/smb/client/smb2ops.c
++++ b/fs/smb/client/smb2ops.c
+@@ -1782,6 +1782,12 @@ replay_again:
+ 		qi_rsp = (struct smb2_query_info_rsp *)rsp_iov[1].iov_base;
+ 		if (le32_to_cpu(qi_rsp->OutputBufferLength) < qi.input_buffer_length)
+ 			qi.input_buffer_length = le32_to_cpu(qi_rsp->OutputBufferLength);
++		if (qi.input_buffer_length > 0 &&
++		    struct_size(qi_rsp, Buffer, qi.input_buffer_length) >
++		    rsp_iov[1].iov_len) {
++			rc = -EFAULT;
++			goto out;
++		}
+ 		if (copy_to_user(&pqi->input_buffer_length,
+ 				 &qi.input_buffer_length,
+ 				 sizeof(qi.input_buffer_length))) {
+diff --git a/fs/smb/server/mgmt/user_config.c b/fs/smb/server/mgmt/user_config.c
+index 56c9a38ca87890..d051ac3bc831ca 100644
+--- a/fs/smb/server/mgmt/user_config.c
++++ b/fs/smb/server/mgmt/user_config.c
+@@ -56,12 +56,6 @@ struct ksmbd_user *ksmbd_alloc_user(struct ksmbd_login_response *resp,
+ 		goto err_free;
+ 
+ 	if (resp_ext) {
+-		if (resp_ext->ngroups > NGROUPS_MAX) {
+-			pr_err("ngroups(%u) from login response exceeds max groups(%d)\n",
+-					resp_ext->ngroups, NGROUPS_MAX);
+-			goto err_free;
+-		}
+-
+ 		user->sgid = kmemdup(resp_ext->____payload,
+ 				     resp_ext->ngroups * sizeof(gid_t),
+ 				     KSMBD_DEFAULT_GFP);
+diff --git a/fs/smb/server/smb2pdu.c b/fs/smb/server/smb2pdu.c
+index 733c0bace6182f..bc0574b6f2c3dc 100644
+--- a/fs/smb/server/smb2pdu.c
++++ b/fs/smb/server/smb2pdu.c
+@@ -4833,6 +4833,8 @@ static int smb2_get_ea(struct ksmbd_work *work, struct ksmbd_file *fp,
+ 		/* align next xattr entry at 4 byte bundary */
+ 		alignment_bytes = ((next_offset + 3) & ~3) - next_offset;
+ 		if (alignment_bytes) {
++			if (buf_free_len < alignment_bytes)
++				break;
+ 			memset(ptr, '\0', alignment_bytes);
+ 			ptr += alignment_bytes;
+ 			next_offset += alignment_bytes;
+diff --git a/fs/smb/server/smbacl.c b/fs/smb/server/smbacl.c
+index e3c5c511579d42..eae9daeb0a414a 100644
+--- a/fs/smb/server/smbacl.c
++++ b/fs/smb/server/smbacl.c
+@@ -596,6 +596,7 @@ static void set_posix_acl_entries_dacl(struct mnt_idmap *idmap,
+ 	struct smb_sid *sid;
+ 	struct smb_ace *ntace;
+ 	int i, j;
++	u16 ace_sz;
+ 
+ 	if (!fattr->cf_acls)
+ 		goto posix_default_acl;
+@@ -640,8 +641,10 @@ static void set_posix_acl_entries_dacl(struct mnt_idmap *idmap,
+ 			flags = 0x03;
+ 
+ 		ntace = (struct smb_ace *)((char *)pndace + *size);
+-		*size += fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED, flags,
++		ace_sz = fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED, flags,
+ 				pace->e_perm, 0777);
++		if (check_add_overflow(*size, ace_sz, size))
++			break;
+ 		(*num_aces)++;
+ 		if (pace->e_tag == ACL_USER)
+ 			ntace->access_req |=
+@@ -650,8 +653,10 @@ static void set_posix_acl_entries_dacl(struct mnt_idmap *idmap,
+ 		if (S_ISDIR(fattr->cf_mode) &&
+ 		    (pace->e_tag == ACL_USER || pace->e_tag == ACL_GROUP)) {
+ 			ntace = (struct smb_ace *)((char *)pndace + *size);
+-			*size += fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED,
++			ace_sz = fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED,
+ 					0x03, pace->e_perm, 0777);
++			if (check_add_overflow(*size, ace_sz, size))
++				break;
+ 			(*num_aces)++;
+ 			if (pace->e_tag == ACL_USER)
+ 				ntace->access_req |=
+@@ -691,8 +696,10 @@ posix_default_acl:
+ 		}
+ 
+ 		ntace = (struct smb_ace *)((char *)pndace + *size);
+-		*size += fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED, 0x0b,
++		ace_sz = fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED, 0x0b,
+ 				pace->e_perm, 0777);
++		if (check_add_overflow(*size, ace_sz, size))
++			break;
+ 		(*num_aces)++;
+ 		if (pace->e_tag == ACL_USER)
+ 			ntace->access_req |=
+@@ -728,7 +735,8 @@ static void set_ntacl_dacl(struct mnt_idmap *idmap,
+ 				break;
+ 
+ 			memcpy((char *)pndace + size, ntace, nt_ace_size);
+-			size += nt_ace_size;
++			if (check_add_overflow(size, nt_ace_size, &size))
++				break;
+ 			aces_size -= nt_ace_size;
+ 			ntace = (struct smb_ace *)((char *)ntace + nt_ace_size);
+ 			num_aces++;
+@@ -1106,8 +1114,24 @@ int smb_inherit_dacl(struct ksmbd_conn *conn,
+ 		goto free_parent_pntsd;
+ 	}
+ 
+-	aces_base = kmalloc(sizeof(struct smb_ace) * num_aces * 2,
+-			    KSMBD_DEFAULT_GFP);
++	aces_size = pdacl_size - sizeof(struct smb_acl);
++
++	/*
++	 * Validate num_aces against the DACL payload before allocating.
++	 * Each ACE must be at least as large as its fixed-size header
++	 * (up to the SID base), so num_aces cannot exceed the payload
++	 * divided by the minimum ACE size.  This mirrors the existing
++	 * check in parse_dacl().
++	 */
++	if (num_aces > aces_size / (offsetof(struct smb_ace, sid) +
++				    offsetof(struct smb_sid, sub_auth) +
++				    sizeof(__le16))) {
++		rc = -EINVAL;
++		goto free_parent_pntsd;
++	}
++
++	aces_base = kmalloc_array(num_aces * 2, sizeof(struct smb_ace),
++				  KSMBD_DEFAULT_GFP);
+ 	if (!aces_base) {
+ 		rc = -ENOMEM;
+ 		goto free_parent_pntsd;
+@@ -1116,7 +1140,6 @@ int smb_inherit_dacl(struct ksmbd_conn *conn,
+ 	aces = (struct smb_ace *)aces_base;
+ 	parent_aces = (struct smb_ace *)((char *)parent_pdacl +
+ 			sizeof(struct smb_acl));
+-	aces_size = acl_len - sizeof(struct smb_acl);
+ 
+ 	if (pntsd_type & DACL_AUTO_INHERITED)
+ 		inherited_flags = INHERITED_ACE;
+@@ -1124,11 +1147,14 @@ int smb_inherit_dacl(struct ksmbd_conn *conn,
+ 	for (i = 0; i < num_aces; i++) {
+ 		int pace_size;
+ 
+-		if (offsetof(struct smb_ace, access_req) > aces_size)
++		if (aces_size < offsetof(struct smb_ace, sid) +
++		    CIFS_SID_BASE_SIZE)
+ 			break;
+ 
+ 		pace_size = le16_to_cpu(parent_aces->size);
+-		if (pace_size > aces_size)
++		if (pace_size > aces_size ||
++		    pace_size < offsetof(struct smb_ace, sid) +
++				CIFS_SID_BASE_SIZE)
+ 			break;
+ 
+ 		aces_size -= pace_size;
+@@ -1342,10 +1368,13 @@ int smb_check_perm_dacl(struct ksmbd_conn *conn, const struct path *path,
+ 		ace = (struct smb_ace *)((char *)pdacl + sizeof(struct smb_acl));
+ 		aces_size = acl_size - sizeof(struct smb_acl);
+ 		for (i = 0; i < le16_to_cpu(pdacl->num_aces); i++) {
+-			if (offsetof(struct smb_ace, access_req) > aces_size)
++			if (offsetof(struct smb_ace, sid) +
++			    aces_size < CIFS_SID_BASE_SIZE)
+ 				break;
+ 			ace_size = le16_to_cpu(ace->size);
+-			if (ace_size > aces_size)
++			if (ace_size > aces_size ||
++			    ace_size < offsetof(struct smb_ace, sid) +
++				       CIFS_SID_BASE_SIZE)
+ 				break;
+ 			aces_size -= ace_size;
+ 			granted |= le32_to_cpu(ace->access_req);
+@@ -1363,13 +1392,19 @@ int smb_check_perm_dacl(struct ksmbd_conn *conn, const struct path *path,
+ 	ace = (struct smb_ace *)((char *)pdacl + sizeof(struct smb_acl));
+ 	aces_size = acl_size - sizeof(struct smb_acl);
+ 	for (i = 0; i < le16_to_cpu(pdacl->num_aces); i++) {
+-		if (offsetof(struct smb_ace, access_req) > aces_size)
++		if (offsetof(struct smb_ace, sid) +
++		    aces_size < CIFS_SID_BASE_SIZE)
+ 			break;
+ 		ace_size = le16_to_cpu(ace->size);
+-		if (ace_size > aces_size)
++		if (ace_size > aces_size ||
++		    ace_size < offsetof(struct smb_ace, sid) +
++			       CIFS_SID_BASE_SIZE)
+ 			break;
+ 		aces_size -= ace_size;
+ 
++		if (ace->sid.num_subauth > SID_MAX_SUB_AUTHORITIES)
++			break;
++
+ 		if (!compare_sids(&sid, &ace->sid) ||
+ 		    !compare_sids(&sid_unix_NFS_mode, &ace->sid)) {
+ 			found = 1;
+diff --git a/fs/smb/server/transport_ipc.c b/fs/smb/server/transport_ipc.c
+index 52a71775b38e52..2f5b0bedf2a971 100644
+--- a/fs/smb/server/transport_ipc.c
++++ b/fs/smb/server/transport_ipc.c
+@@ -13,6 +13,7 @@
+ #include <net/genetlink.h>
+ #include <linux/socket.h>
+ #include <linux/workqueue.h>
++#include <linux/overflow.h>
+ 
+ #include "vfs_cache.h"
+ #include "transport_ipc.h"
+@@ -497,7 +498,9 @@ static int ipc_validate_msg(struct ipc_msg_table_entry *entry)
+ 	{
+ 		struct ksmbd_rpc_command *resp = entry->response;
+ 
+-		msg_sz = sizeof(struct ksmbd_rpc_command) + resp->payload_sz;
++		if (check_add_overflow(sizeof(struct ksmbd_rpc_command),
++				       resp->payload_sz, &msg_sz))
++			return -EINVAL;
+ 		break;
+ 	}
+ 	case KSMBD_EVENT_SPNEGO_AUTHEN_REQUEST:
+@@ -516,8 +519,9 @@ static int ipc_validate_msg(struct ipc_msg_table_entry *entry)
+ 			if (resp->payload_sz < resp->veto_list_sz)
+ 				return -EINVAL;
+ 
+-			msg_sz = sizeof(struct ksmbd_share_config_response) +
+-					resp->payload_sz;
++			if (check_add_overflow(sizeof(struct ksmbd_share_config_response),
++					       resp->payload_sz, &msg_sz))
++				return -EINVAL;
+ 		}
+ 		break;
+ 	}
+@@ -526,6 +530,12 @@ static int ipc_validate_msg(struct ipc_msg_table_entry *entry)
+ 		struct ksmbd_login_response_ext *resp = entry->response;
+ 
+ 		if (resp->ngroups) {
++			if (resp->ngroups < 0 ||
++			    resp->ngroups > NGROUPS_MAX) {
++				pr_err("ngroups(%d) from login response exceeds max groups(%d)\n",
++				       resp->ngroups, NGROUPS_MAX);
++				return -EINVAL;
++			}
+ 			msg_sz = sizeof(struct ksmbd_login_response_ext) +
+ 					resp->ngroups * sizeof(gid_t);
+ 		}
+diff --git a/fs/smb/server/transport_tcp.c b/fs/smb/server/transport_tcp.c
+index 9ad9b50bf93e83..4dfb0ccdaf98ae 100644
+--- a/fs/smb/server/transport_tcp.c
++++ b/fs/smb/server/transport_tcp.c
+@@ -203,6 +203,8 @@ static int ksmbd_tcp_new_connection(struct socket *client_sk)
+ 	t = alloc_transport(client_sk);
+ 	if (!t) {
+ 		sock_release(client_sk);
++		if (server_conf.max_connections)
++			atomic_dec(&active_num_conn);
+ 		return -ENOMEM;
+ 	}
+ 
+@@ -295,7 +297,7 @@ static int ksmbd_kthread_fn(void *p)
+ 
+ skip_max_ip_conns_limit:
+ 		if (server_conf.max_connections &&
+-		    atomic_inc_return(&active_num_conn) >= server_conf.max_connections) {
++		    atomic_inc_return(&active_num_conn) > server_conf.max_connections) {
+ 			pr_info_ratelimited("Limit the maximum number of connections(%u)\n",
+ 					    atomic_read(&active_num_conn));
+ 			atomic_dec(&active_num_conn);
+diff --git a/fs/smb/server/vfs_cache.c b/fs/smb/server/vfs_cache.c
+index 6ef116585af645..08f25a2d754168 100644
+--- a/fs/smb/server/vfs_cache.c
++++ b/fs/smb/server/vfs_cache.c
+@@ -370,9 +370,11 @@ static void __ksmbd_close_fd(struct ksmbd_file_table *ft, struct ksmbd_file *fp)
+ 	 * there are not accesses to fp->lock_list.
+ 	 */
+ 	list_for_each_entry_safe(smb_lock, tmp_lock, &fp->lock_list, flist) {
+-		spin_lock(&fp->conn->llist_lock);
+-		list_del(&smb_lock->clist);
+-		spin_unlock(&fp->conn->llist_lock);
++		if (!list_empty(&smb_lock->clist) && fp->conn) {
++			spin_lock(&fp->conn->llist_lock);
++			list_del(&smb_lock->clist);
++			spin_unlock(&fp->conn->llist_lock);
++		}
+ 
+ 		list_del(&smb_lock->flist);
+ 		locks_free_lock(smb_lock->fl);
+@@ -902,6 +904,7 @@ static bool session_fd_check(struct ksmbd_tree_connect *tcon,
+ 	struct ksmbd_inode *ci;
+ 	struct oplock_info *op;
+ 	struct ksmbd_conn *conn;
++	struct ksmbd_lock *smb_lock, *tmp_lock;
+ 
+ 	if (!is_reconnectable(fp))
+ 		return false;
+@@ -918,6 +921,12 @@ static bool session_fd_check(struct ksmbd_tree_connect *tcon,
+ 	}
+ 	up_write(&ci->m_lock);
+ 
++	list_for_each_entry_safe(smb_lock, tmp_lock, &fp->lock_list, flist) {
++		spin_lock(&fp->conn->llist_lock);
++		list_del_init(&smb_lock->clist);
++		spin_unlock(&fp->conn->llist_lock);
++	}
++
+ 	fp->conn = NULL;
+ 	fp->tcon = NULL;
+ 	fp->volatile_id = KSMBD_NO_FID;
+@@ -996,6 +1005,9 @@ int ksmbd_reopen_durable_fd(struct ksmbd_work *work, struct ksmbd_file *fp)
+ {
+ 	struct ksmbd_inode *ci;
+ 	struct oplock_info *op;
++	struct ksmbd_conn *conn = work->conn;
++	struct ksmbd_lock *smb_lock;
++	unsigned int old_f_state;
+ 
+ 	if (!fp->is_durable || fp->conn || fp->tcon) {
+ 		pr_err("Invalid durable fd [%p:%p]\n", fp->conn, fp->tcon);
+@@ -1007,9 +1019,23 @@ int ksmbd_reopen_durable_fd(struct ksmbd_work *work, struct ksmbd_file *fp)
+ 		return -EBADF;
+ 	}
+ 
+-	fp->conn = work->conn;
++	old_f_state = fp->f_state;
++	fp->f_state = FP_NEW;
++	__open_id(&work->sess->file_table, fp, OPEN_ID_TYPE_VOLATILE_ID);
++	if (!has_file_id(fp->volatile_id)) {
++		fp->f_state = old_f_state;
++		return -EBADF;
++	}
++
++	fp->conn = conn;
+ 	fp->tcon = work->tcon;
+ 
++	list_for_each_entry(smb_lock, &fp->lock_list, flist) {
++		spin_lock(&conn->llist_lock);
++		list_add_tail(&smb_lock->clist, &conn->lock_list);
++		spin_unlock(&conn->llist_lock);
++	}
++
+ 	ci = fp->f_ci;
+ 	down_write(&ci->m_lock);
+ 	list_for_each_entry_rcu(op, &ci->m_op_list, op_entry) {
+@@ -1020,13 +1046,6 @@ int ksmbd_reopen_durable_fd(struct ksmbd_work *work, struct ksmbd_file *fp)
+ 	}
+ 	up_write(&ci->m_lock);
+ 
+-	fp->f_state = FP_NEW;
+-	__open_id(&work->sess->file_table, fp, OPEN_ID_TYPE_VOLATILE_ID);
+-	if (!has_file_id(fp->volatile_id)) {
+-		fp->conn = NULL;
+-		fp->tcon = NULL;
+-		return -EBADF;
+-	}
+ 	return 0;
+ }
+ 
+diff --git a/include/linux/hugetlb.h b/include/linux/hugetlb.h
+index 81b69287ab3b04..32c9bc8c750c59 100644
+--- a/include/linux/hugetlb.h
++++ b/include/linux/hugetlb.h
+@@ -783,6 +783,23 @@ static inline unsigned huge_page_shift(struct hstate *h)
+ 	return h->order + PAGE_SHIFT;
+ }
+ 
++/**
++ * hugetlb_linear_page_index() - linear_page_index() but in hugetlb
++ *				 page size granularity.
++ * @vma: the hugetlb VMA
++ * @address: the virtual address within the VMA
++ *
++ * Return: the page offset within the mapping in huge page units.
++ */
++static inline pgoff_t hugetlb_linear_page_index(struct vm_area_struct *vma,
++		unsigned long address)
++{
++	struct hstate *h = hstate_vma(vma);
++
++	return ((address - vma->vm_start) >> huge_page_shift(h)) +
++		(vma->vm_pgoff >> huge_page_order(h));
++}
++
+ static inline bool hstate_is_gigantic(struct hstate *h)
+ {
+ 	return huge_page_order(h) > MAX_PAGE_ORDER;
+diff --git a/include/net/mac80211.h b/include/net/mac80211.h
+index 80259a37e72476..7d71a4149cdf95 100644
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -7208,7 +7208,9 @@ void ieee80211_report_wowlan_wakeup(struct ieee80211_vif *vif,
+  * @band: the band to transmit on
+  * @sta: optional pointer to get the station to send the frame to
+  *
+- * Return: %true if the skb was prepared, %false otherwise
++ * Return: %true if the skb was prepared, %false otherwise.
++ * On failure, the skb is freed by this function; callers must not
++ * free it again.
+  *
+  * Note: must be called under RCU lock
+  */
+diff --git a/mm/pagewalk.c b/mm/pagewalk.c
+index 5f9f01532e67a4..313a8fa9b5dce7 100644
+--- a/mm/pagewalk.c
++++ b/mm/pagewalk.c
+@@ -78,12 +78,31 @@ static int walk_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
+ static int walk_pmd_range(pud_t *pud, unsigned long addr, unsigned long end,
+ 			  struct mm_walk *walk)
+ {
++	pud_t pudval = pudp_get(pud);
+ 	pmd_t *pmd;
+ 	unsigned long next;
+ 	const struct mm_walk_ops *ops = walk->ops;
+ 	int err = 0;
+ 	int depth = real_depth(3);
+ 
++	/*
++	 * For PTE handling, pte_offset_map_lock() takes care of checking
++	 * whether there actually is a page table. But it also has to be
++	 * very careful about concurrent page table reclaim.
++	 *
++	 * Similarly, we have to be careful here - a PUD entry that points
++	 * to a PMD table cannot go away, so we can just walk it. But if
++	 * it's something else, we need to ensure we didn't race something,
++	 * so need to retry.
++	 *
++	 * A pertinent example of this is a PUD refault after PUD split -
++	 * we will need to split again or risk accessing invalid memory.
++	 */
++	if (!pud_present(pudval) || pud_leaf(pudval)) {
++		walk->action = ACTION_AGAIN;
++		return 0;
++	}
++
+ 	pmd = pmd_offset(pud, addr);
+ 	do {
+ again:
+@@ -172,12 +191,13 @@ static int walk_pud_range(p4d_t *p4d, unsigned long addr, unsigned long end,
+ 
+ 		if (walk->vma)
+ 			split_huge_pud(walk->vma, pud, addr);
+-		if (pud_none(*pud))
+-			goto again;
+ 
+ 		err = walk_pmd_range(pud, addr, next, walk);
+ 		if (err)
+ 			break;
++
++		if (walk->action == ACTION_AGAIN)
++			goto again;
+ 	} while (pud++, addr = next, addr != end);
+ 
+ 	return err;
+diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
+index 904095f69a6e31..9951b4f42c65a6 100644
+--- a/mm/userfaultfd.c
++++ b/mm/userfaultfd.c
+@@ -573,7 +573,7 @@ retry:
+ 		 * in the case of shared pmds.  fault mutex prevents
+ 		 * races with other faulting threads.
+ 		 */
+-		idx = linear_page_index(dst_vma, dst_addr);
++		idx = hugetlb_linear_page_index(dst_vma, dst_addr);
+ 		mapping = dst_vma->vm_file->f_mapping;
+ 		hash = hugetlb_fault_mutex_hash(mapping, idx);
+ 		mutex_lock(&hugetlb_fault_mutex_table[hash]);
+diff --git a/net/mac80211/tx.c b/net/mac80211/tx.c
+index 9142d748a6a70d..0458cbba232e21 100644
+--- a/net/mac80211/tx.c
++++ b/net/mac80211/tx.c
+@@ -1897,8 +1897,10 @@ bool ieee80211_tx_prepare_skb(struct ieee80211_hw *hw,
+ 	struct ieee80211_tx_data tx;
+ 	struct sk_buff *skb2;
+ 
+-	if (ieee80211_tx_prepare(sdata, &tx, NULL, skb) == TX_DROP)
++	if (ieee80211_tx_prepare(sdata, &tx, NULL, skb) == TX_DROP) {
++		kfree_skb(skb);
+ 		return false;
++	}
+ 
+ 	info->band = band;
+ 	info->control.vif = vif;
+diff --git a/net/packet/af_packet.c b/net/packet/af_packet.c
+index 10de44530362c3..562c860cca577a 100644
+--- a/net/packet/af_packet.c
++++ b/net/packet/af_packet.c
+@@ -2770,7 +2770,8 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
+ {
+ 	struct sk_buff *skb = NULL;
+ 	struct net_device *dev;
+-	struct virtio_net_hdr *vnet_hdr = NULL;
++	struct virtio_net_hdr vnet_hdr;
++	bool has_vnet_hdr = false;
+ 	struct sockcm_cookie sockc;
+ 	__be16 proto;
+ 	int err, reserve = 0;
+@@ -2871,16 +2872,20 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
+ 		hlen = LL_RESERVED_SPACE(dev);
+ 		tlen = dev->needed_tailroom;
+ 		if (vnet_hdr_sz) {
+-			vnet_hdr = data;
+ 			data += vnet_hdr_sz;
+ 			tp_len -= vnet_hdr_sz;
+-			if (tp_len < 0 ||
+-			    __packet_snd_vnet_parse(vnet_hdr, tp_len)) {
++			if (tp_len < 0) {
++				tp_len = -EINVAL;
++				goto tpacket_error;
++			}
++			memcpy(&vnet_hdr, data - vnet_hdr_sz, sizeof(vnet_hdr));
++			if (__packet_snd_vnet_parse(&vnet_hdr, tp_len)) {
+ 				tp_len = -EINVAL;
+ 				goto tpacket_error;
+ 			}
+ 			copylen = __virtio16_to_cpu(vio_le(),
+-						    vnet_hdr->hdr_len);
++						    vnet_hdr.hdr_len);
++			has_vnet_hdr = true;
+ 		}
+ 		copylen = max_t(int, copylen, dev->hard_header_len);
+ 		skb = sock_alloc_send_skb(&po->sk,
+@@ -2917,12 +2922,12 @@ tpacket_error:
+ 			}
+ 		}
+ 
+-		if (vnet_hdr_sz) {
+-			if (virtio_net_hdr_to_skb(skb, vnet_hdr, vio_le())) {
++		if (has_vnet_hdr) {
++			if (virtio_net_hdr_to_skb(skb, &vnet_hdr, vio_le())) {
+ 				tp_len = -EINVAL;
+ 				goto tpacket_error;
+ 			}
+-			virtio_net_hdr_set_proto(skb, vnet_hdr);
++			virtio_net_hdr_set_proto(skb, &vnet_hdr);
+ 		}
+ 
+ 		skb->destructor = tpacket_destruct_skb;
+diff --git a/net/rxrpc/conn_event.c b/net/rxrpc/conn_event.c
+index c8df12d80c7cea..6ef2dc1aa8cc2d 100644
+--- a/net/rxrpc/conn_event.c
++++ b/net/rxrpc/conn_event.c
+@@ -233,6 +233,7 @@ static int rxrpc_process_event(struct rxrpc_connection *conn,
+ 			       struct sk_buff *skb)
+ {
+ 	struct rxrpc_skb_priv *sp = rxrpc_skb(skb);
++	bool secured = false;
+ 	int ret;
+ 
+ 	if (conn->state == RXRPC_CONN_ABORTED)
+@@ -245,6 +246,13 @@ static int rxrpc_process_event(struct rxrpc_connection *conn,
+ 		return conn->security->respond_to_challenge(conn, skb);
+ 
+ 	case RXRPC_PACKET_TYPE_RESPONSE:
++		spin_lock(&conn->state_lock);
++		if (conn->state != RXRPC_CONN_SERVICE_CHALLENGING) {
++			spin_unlock(&conn->state_lock);
++			return 0;
++		}
++		spin_unlock(&conn->state_lock);
++
+ 		ret = conn->security->verify_response(conn, skb);
+ 		if (ret < 0)
+ 			return ret;
+@@ -255,11 +263,13 @@ static int rxrpc_process_event(struct rxrpc_connection *conn,
+ 			return ret;
+ 
+ 		spin_lock(&conn->state_lock);
+-		if (conn->state == RXRPC_CONN_SERVICE_CHALLENGING)
++		if (conn->state == RXRPC_CONN_SERVICE_CHALLENGING) {
+ 			conn->state = RXRPC_CONN_SERVICE;
++			secured = true;
++		}
+ 		spin_unlock(&conn->state_lock);
+ 
+-		if (conn->state == RXRPC_CONN_SERVICE) {
++		if (secured) {
+ 			/* Offload call state flipping to the I/O thread.  As
+ 			 * we've already received the packet, put it on the
+ 			 * front of the queue.
+diff --git a/net/rxrpc/key.c b/net/rxrpc/key.c
+index 4ac92d525540f7..73659197edffad 100644
+--- a/net/rxrpc/key.c
++++ b/net/rxrpc/key.c
+@@ -340,6 +340,10 @@ static int rxrpc_preparse(struct key_preparsed_payload *prep)
+ 	if (v1->security_index != RXRPC_SECURITY_RXKAD)
+ 		goto error;
+ 
++	ret = -EKEYREJECTED;
++	if (v1->ticket_length > AFSTOKEN_RK_TIX_MAX)
++		goto error;
++
+ 	plen = sizeof(*token->kad) + v1->ticket_length;
+ 	prep->quotalen += plen + sizeof(*token);
+ 
+diff --git a/scripts/dtc/dtc-lexer.l b/scripts/dtc/dtc-lexer.l
+index de60a70b6bdbcb..14d0f089f03a63 100644
+--- a/scripts/dtc/dtc-lexer.l
++++ b/scripts/dtc/dtc-lexer.l
+@@ -39,8 +39,6 @@ extern bool treesource_error;
+ #define DPRINT(fmt, ...)	do { } while (0)
+ #endif
+ 
+-static int dts_version = 1;
+-
+ #define BEGIN_DEFAULT()		DPRINT("<V1>\n"); \
+ 				BEGIN(V1); \
+ 
+@@ -101,7 +99,6 @@ static void PRINTF(1, 2) lexical_error(const char *fmt, ...);
+ 
+ <*>"/dts-v1/"	{
+ 			DPRINT("Keyword: /dts-v1/\n");
+-			dts_version = 1;
+ 			BEGIN_DEFAULT();
+ 			return DT_V1;
+ 		}
+diff --git a/scripts/generate_rust_analyzer.py b/scripts/generate_rust_analyzer.py
+index ece3b1e88e7116..9cedc1d76e58f3 100755
+--- a/scripts/generate_rust_analyzer.py
++++ b/scripts/generate_rust_analyzer.py
+@@ -144,6 +144,18 @@ def generate_crates(srctree, objtree, sysroot_src, external_src, cfgs, core_edit
+     append_crate_with_generated("uapi", ["core", "ffi"])
+     append_crate_with_generated("kernel", ["core", "macros", "build_error", "ffi", "bindings", "uapi"])
+ 
++    scripts = srctree / "scripts"
++    makefile = (scripts / "Makefile").read_text()
++    for path in scripts.glob("*.rs"):
++        name = path.stem
++        if f"{name}-rust" not in makefile:
++            continue
++        append_crate(
++            name,
++            path,
++            ["std"],
++        )
++
+     def is_root_crate(build_file, target):
+         try:
+             contents = build_file.read_text()
+@@ -160,7 +172,7 @@ def generate_crates(srctree, objtree, sysroot_src, external_src, cfgs, core_edit
+     for folder in extra_dirs:
+         for path in folder.rglob("*.rs"):
+             logging.info("Checking %s", path)
+-            name = path.name.replace(".rs", "")
++            name = path.stem
+ 
+             # Skip those that are not crate roots.
+             if not is_root_crate(path.parent / "Makefile", name) and \
+diff --git a/scripts/rust_is_available.sh b/scripts/rust_is_available.sh
+index 5262c56dd674e6..93c0ef7fb3fb22 100755
+--- a/scripts/rust_is_available.sh
++++ b/scripts/rust_is_available.sh
+@@ -225,6 +225,21 @@ if [ "$bindgen_libclang_cversion" -lt "$bindgen_libclang_min_cversion" ]; then
+ 	exit 1
+ fi
+ 
++if [ "$bindgen_libclang_cversion" -ge 1900100 ] &&
++	[ "$rust_bindings_generator_cversion" -lt 6905 ]; then
++	# Distributions may have patched the issue (e.g. Debian did).
++	if ! "$BINDGEN" $(dirname $0)/rust_is_available_bindgen_libclang_concat.h | grep -q foofoo; then
++		echo >&2 "***"
++		echo >&2 "*** Rust bindings generator '$BINDGEN' < 0.69.5 together with libclang >= 19.1"
++		echo >&2 "*** may not work due to a bug (https://github.com/rust-lang/rust-bindgen/pull/2824),"
++		echo >&2 "*** unless patched (like Debian's)."
++		echo >&2 "***   Your bindgen version:  $rust_bindings_generator_version"
++		echo >&2 "***   Your libclang version: $bindgen_libclang_version"
++		echo >&2 "***"
++		warning=1
++	fi
++fi
++
+ # If the C compiler is Clang, then we can also check whether its version
+ # matches the `libclang` version used by the Rust bindings generator.
+ #
+diff --git a/scripts/rust_is_available_bindgen_libclang_concat.h b/scripts/rust_is_available_bindgen_libclang_concat.h
+new file mode 100644
+index 00000000000000..efc6e98d0f1d0c
+--- /dev/null
++++ b/scripts/rust_is_available_bindgen_libclang_concat.h
+@@ -0,0 +1,3 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#define F(x) int x##x
++F(foo);
+diff --git a/scripts/rust_is_available_test.py b/scripts/rust_is_available_test.py
+index 413741037fb307..4fcc319dea84e7 100755
+--- a/scripts/rust_is_available_test.py
++++ b/scripts/rust_is_available_test.py
+@@ -54,7 +54,7 @@ else:
+ """)
+ 
+     @classmethod
+-    def generate_bindgen(cls, version_stdout, libclang_stderr, version_0_66_patched=False):
++    def generate_bindgen(cls, version_stdout, libclang_stderr, version_0_66_patched=False, libclang_concat_patched=False):
+         if libclang_stderr is None:
+             libclang_case = f"raise SystemExit({cls.bindgen_default_bindgen_libclang_failure_exit_code})"
+         else:
+@@ -65,12 +65,19 @@ else:
+         else:
+             version_0_66_case = "raise SystemExit(1)"
+ 
++        if libclang_concat_patched:
++            libclang_concat_case = "print('pub static mut foofoo: ::std::os::raw::c_int;')"
++        else:
++            libclang_concat_case = "pass"
++
+         return cls.generate_executable(f"""#!/usr/bin/env python3
+ import sys
+ if "rust_is_available_bindgen_libclang.h" in " ".join(sys.argv):
+     {libclang_case}
+ elif "rust_is_available_bindgen_0_66.h" in " ".join(sys.argv):
+     {version_0_66_case}
++elif "rust_is_available_bindgen_libclang_concat.h" in " ".join(sys.argv):
++    {libclang_concat_case}
+ else:
+     print({repr(version_stdout)})
+ """)
+@@ -268,6 +275,31 @@ else:
+         result = self.run_script(self.Expected.FAILURE, { "BINDGEN": bindgen })
+         self.assertIn(f"libclang (used by the Rust bindings generator '{bindgen}') is too old.", result.stderr)
+ 
++    def test_bindgen_bad_libclang_concat(self):
++        for (bindgen_version, libclang_version, expected_not_patched) in (
++            ("0.69.4", "18.0.0", self.Expected.SUCCESS),
++            ("0.69.4", "19.1.0", self.Expected.SUCCESS_WITH_WARNINGS),
++            ("0.69.4", "19.2.0", self.Expected.SUCCESS_WITH_WARNINGS),
++
++            ("0.69.5", "18.0.0", self.Expected.SUCCESS),
++            ("0.69.5", "19.1.0", self.Expected.SUCCESS),
++            ("0.69.5", "19.2.0", self.Expected.SUCCESS),
++
++            ("0.70.0", "18.0.0", self.Expected.SUCCESS),
++            ("0.70.0", "19.1.0", self.Expected.SUCCESS),
++            ("0.70.0", "19.2.0", self.Expected.SUCCESS),
++        ):
++            with self.subTest(bindgen_version=bindgen_version, libclang_version=libclang_version):
++                cc = self.generate_clang(f"clang version {libclang_version}")
++                libclang_stderr = f"scripts/rust_is_available_bindgen_libclang.h:2:9: warning: clang version {libclang_version} [-W#pragma-messages], err: false"
++                bindgen = self.generate_bindgen(f"bindgen {bindgen_version}", libclang_stderr)
++                result = self.run_script(expected_not_patched, { "BINDGEN": bindgen, "CC": cc })
++                if expected_not_patched == self.Expected.SUCCESS_WITH_WARNINGS:
++                    self.assertIn(f"Rust bindings generator '{bindgen}' < 0.69.5 together with libclang >= 19.1", result.stderr)
++
++                bindgen = self.generate_bindgen(f"bindgen {bindgen_version}", libclang_stderr, libclang_concat_patched=True)
++                result = self.run_script(self.Expected.SUCCESS, { "BINDGEN": bindgen, "CC": cc })
++
+     def test_clang_matches_bindgen_libclang_different_bindgen(self):
+         bindgen = self.generate_bindgen_libclang("scripts/rust_is_available_bindgen_libclang.h:2:9: warning: clang version 999.0.0 [-W#pragma-messages], err: false")
+         result = self.run_script(self.Expected.SUCCESS_WITH_WARNINGS, { "BINDGEN": bindgen })
+diff --git a/security/integrity/ima/ima_kexec.c b/security/integrity/ima/ima_kexec.c
+index c9e5b1d6b0ab8c..501b952b36981f 100644
+--- a/security/integrity/ima/ima_kexec.c
++++ b/security/integrity/ima/ima_kexec.c
+@@ -34,6 +34,14 @@ static void ima_free_kexec_file_buf(struct seq_file *sf)
+ 
+ static int ima_alloc_kexec_file_buf(size_t segment_size)
+ {
++	/*
++	 * kexec 'load' may be called multiple times.
++	 * Free and realloc the buffer only if the segment_size is
++	 * changed from the previous kexec 'load' call.
++	 */
++	if (ima_kexec_file.buf && ima_kexec_file.size == segment_size)
++		goto out;
++
+ 	ima_free_kexec_file_buf(&ima_kexec_file);
+ 
+ 	/* segment size can't change between kexec load and execute */
+@@ -42,6 +50,8 @@ static int ima_alloc_kexec_file_buf(size_t segment_size)
+ 		return -ENOMEM;
+ 
+ 	ima_kexec_file.size = segment_size;
++
++out:
+ 	ima_kexec_file.read_pos = 0;
+ 	ima_kexec_file.count = sizeof(struct ima_kexec_hdr);	/* reserved space */
+ 
+@@ -119,6 +129,9 @@ void ima_add_kexec_buffer(struct kimage *image)
+ 	size_t kexec_segment_size;
+ 	int ret;
+ 
++	if (image->type == KEXEC_TYPE_CRASH)
++		return;
++
+ 	/*
+ 	 * Reserve an extra half page of memory for additional measurements
+ 	 * added during the kexec load.
+diff --git a/sound/usb/caiaq/device.c b/sound/usb/caiaq/device.c
+index 3a71bab8a47749..51177ebfb8c627 100644
+--- a/sound/usb/caiaq/device.c
++++ b/sound/usb/caiaq/device.c
+@@ -384,7 +384,7 @@ static void card_free(struct snd_card *card)
+ 	snd_usb_caiaq_input_free(cdev);
+ #endif
+ 	snd_usb_caiaq_audio_free(cdev);
+-	usb_reset_device(cdev->chip.dev);
++	usb_put_dev(cdev->chip.dev);
+ }
+ 
+ static int create_card(struct usb_device *usb_dev,
+@@ -410,7 +410,7 @@ static int create_card(struct usb_device *usb_dev,
+ 		return err;
+ 
+ 	cdev = caiaqdev(card);
+-	cdev->chip.dev = usb_dev;
++	cdev->chip.dev = usb_get_dev(usb_dev);
+ 	cdev->chip.card = card;
+ 	cdev->chip.usb_id = USB_ID(le16_to_cpu(usb_dev->descriptor.idVendor),
+ 				  le16_to_cpu(usb_dev->descriptor.idProduct));
+diff --git a/sound/usb/mixer.c b/sound/usb/mixer.c
+index 681c8678d91a4a..c8882d58163792 100644
+--- a/sound/usb/mixer.c
++++ b/sound/usb/mixer.c
+@@ -1198,6 +1198,13 @@ static void volume_control_quirks(struct usb_mixer_elem_info *cval,
+ 			cval->min = -14208; /* Mute under it */
+ 		}
+ 		break;
++	case USB_ID(0x31b2, 0x0111): /* MOONDROP JU Jiu */
++		if (!strcmp(kctl->id.name, "PCM Playback Volume")) {
++			usb_audio_info(chip,
++				       "set volume quirk for MOONDROP JU Jiu\n");
++			cval->min = -10880; /* Mute under it */
++		}
++		break;
+ 	}
+ }
+ 

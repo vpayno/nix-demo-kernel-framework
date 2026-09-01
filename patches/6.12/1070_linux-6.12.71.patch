@@ -1,0 +1,497 @@
+diff --git a/Makefile b/Makefile
+index 3f2328829d2846..443fa095f66f43 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 12
+-SUBLEVEL = 70
++SUBLEVEL = 71
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/drivers/net/bareudp.c b/drivers/net/bareudp.c
+index e057526448d780..fa2dd76ba3d9e2 100644
+--- a/drivers/net/bareudp.c
++++ b/drivers/net/bareudp.c
+@@ -317,7 +317,7 @@ static int bareudp_xmit_skb(struct sk_buff *skb, struct net_device *dev,
+ 	__be32 saddr;
+ 	int err;
+ 
+-	if (!skb_vlan_inet_prepare(skb, skb->protocol != htons(ETH_P_TEB)))
++	if (skb_vlan_inet_prepare(skb, skb->protocol != htons(ETH_P_TEB)))
+ 		return -EINVAL;
+ 
+ 	if (!sock)
+@@ -387,7 +387,7 @@ static int bareudp6_xmit_skb(struct sk_buff *skb, struct net_device *dev,
+ 	__be16 sport;
+ 	int err;
+ 
+-	if (!skb_vlan_inet_prepare(skb, skb->protocol != htons(ETH_P_TEB)))
++	if (skb_vlan_inet_prepare(skb, skb->protocol != htons(ETH_P_TEB)))
+ 		return -EINVAL;
+ 
+ 	if (!sock)
+diff --git a/drivers/net/geneve.c b/drivers/net/geneve.c
+index 963fb9261f017c..eea0875e4e5518 100644
+--- a/drivers/net/geneve.c
++++ b/drivers/net/geneve.c
+@@ -827,7 +827,7 @@ static int geneve_xmit_skb(struct sk_buff *skb, struct net_device *dev,
+ 	__be16 sport;
+ 	int err;
+ 
+-	if (!skb_vlan_inet_prepare(skb, inner_proto_inherit))
++	if (skb_vlan_inet_prepare(skb, inner_proto_inherit))
+ 		return -EINVAL;
+ 
+ 	if (!gs4)
+@@ -937,7 +937,7 @@ static int geneve6_xmit_skb(struct sk_buff *skb, struct net_device *dev,
+ 	__be16 sport;
+ 	int err;
+ 
+-	if (!skb_vlan_inet_prepare(skb, inner_proto_inherit))
++	if (skb_vlan_inet_prepare(skb, inner_proto_inherit))
+ 		return -EINVAL;
+ 
+ 	if (!gs6)
+diff --git a/drivers/net/vxlan/vxlan_core.c b/drivers/net/vxlan/vxlan_core.c
+index bbfa4eed17559f..c78451ed06ecc0 100644
+--- a/drivers/net/vxlan/vxlan_core.c
++++ b/drivers/net/vxlan/vxlan_core.c
+@@ -2381,7 +2381,7 @@ void vxlan_xmit_one(struct sk_buff *skb, struct net_device *dev,
+ 	__be32 vni = 0;
+ 
+ 	no_eth_encap = flags & VXLAN_F_GPE && skb->protocol != htons(ETH_P_TEB);
+-	if (!skb_vlan_inet_prepare(skb, no_eth_encap))
++	if (skb_vlan_inet_prepare(skb, no_eth_encap))
+ 		goto drop;
+ 
+ 	old_iph = ip_hdr(skb);
+diff --git a/include/net/ip_tunnels.h b/include/net/ip_tunnels.h
+index 01fcf952b05de9..1f92cc7fdbd214 100644
+--- a/include/net/ip_tunnels.h
++++ b/include/net/ip_tunnels.h
+@@ -467,11 +467,12 @@ static inline bool pskb_inet_may_pull(struct sk_buff *skb)
+ 
+ /* Variant of pskb_inet_may_pull().
+  */
+-static inline bool skb_vlan_inet_prepare(struct sk_buff *skb,
+-					 bool inner_proto_inherit)
++static inline enum skb_drop_reason
++skb_vlan_inet_prepare(struct sk_buff *skb, bool inner_proto_inherit)
+ {
+ 	int nhlen = 0, maclen = inner_proto_inherit ? 0 : ETH_HLEN;
+ 	__be16 type = skb->protocol;
++	enum skb_drop_reason reason;
+ 
+ 	/* Essentially this is skb_protocol(skb, true)
+ 	 * And we get MAC len.
+@@ -492,11 +493,13 @@ static inline bool skb_vlan_inet_prepare(struct sk_buff *skb,
+ 	/* For ETH_P_IPV6/ETH_P_IP we make sure to pull
+ 	 * a base network header in skb->head.
+ 	 */
+-	if (!pskb_may_pull(skb, maclen + nhlen))
+-		return false;
++	reason = pskb_may_pull_reason(skb, maclen + nhlen);
++	if (reason)
++		return reason;
+ 
+ 	skb_set_network_header(skb, maclen);
+-	return true;
++
++	return SKB_NOT_DROPPED_YET;
+ }
+ 
+ static inline int ip_encap_hlen(struct ip_tunnel_encap *e)
+diff --git a/io_uring/rw.c b/io_uring/rw.c
+index 996cd4bec4821a..1a38b357836742 100644
+--- a/io_uring/rw.c
++++ b/io_uring/rw.c
+@@ -953,6 +953,8 @@ int io_read(struct io_kiocb *req, unsigned int issue_flags)
+ 	if (ret >= 0)
+ 		return kiocb_done(req, ret, issue_flags);
+ 
++	if (req->flags & REQ_F_BUFFERS_COMMIT)
++		io_kbuf_recycle(req, issue_flags);
+ 	return ret;
+ }
+ 
+diff --git a/tools/testing/vsock/control.c b/tools/testing/vsock/control.c
+index d2deb4b15b943c..0066e0324d35c6 100644
+--- a/tools/testing/vsock/control.c
++++ b/tools/testing/vsock/control.c
+@@ -27,6 +27,7 @@
+ 
+ #include "timeout.h"
+ #include "control.h"
++#include "util.h"
+ 
+ static int control_fd = -1;
+ 
+@@ -50,7 +51,6 @@ void control_init(const char *control_host,
+ 
+ 	for (ai = result; ai; ai = ai->ai_next) {
+ 		int fd;
+-		int val = 1;
+ 
+ 		fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+ 		if (fd < 0)
+@@ -65,11 +65,8 @@ void control_init(const char *control_host,
+ 			break;
+ 		}
+ 
+-		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+-			       &val, sizeof(val)) < 0) {
+-			perror("setsockopt");
+-			exit(EXIT_FAILURE);
+-		}
++		setsockopt_int_check(fd, SOL_SOCKET, SO_REUSEADDR, 1,
++				     "setsockopt SO_REUSEADDR");
+ 
+ 		if (bind(fd, ai->ai_addr, ai->ai_addrlen) < 0)
+ 			goto next;
+diff --git a/tools/testing/vsock/msg_zerocopy_common.c b/tools/testing/vsock/msg_zerocopy_common.c
+index 5a4bdf7b513282..8622e5a0f8b774 100644
+--- a/tools/testing/vsock/msg_zerocopy_common.c
++++ b/tools/testing/vsock/msg_zerocopy_common.c
+@@ -14,16 +14,6 @@
+ 
+ #include "msg_zerocopy_common.h"
+ 
+-void enable_so_zerocopy(int fd)
+-{
+-	int val = 1;
+-
+-	if (setsockopt(fd, SOL_SOCKET, SO_ZEROCOPY, &val, sizeof(val))) {
+-		perror("setsockopt");
+-		exit(EXIT_FAILURE);
+-	}
+-}
+-
+ void vsock_recv_completion(int fd, const bool *zerocopied)
+ {
+ 	struct sock_extended_err *serr;
+diff --git a/tools/testing/vsock/msg_zerocopy_common.h b/tools/testing/vsock/msg_zerocopy_common.h
+index 3763c5ccedb95e..ad14139e93ca39 100644
+--- a/tools/testing/vsock/msg_zerocopy_common.h
++++ b/tools/testing/vsock/msg_zerocopy_common.h
+@@ -12,7 +12,6 @@
+ #define VSOCK_RECVERR	1
+ #endif
+ 
+-void enable_so_zerocopy(int fd);
+ void vsock_recv_completion(int fd, const bool *zerocopied);
+ 
+ #endif /* MSG_ZEROCOPY_COMMON_H */
+diff --git a/tools/testing/vsock/util.c b/tools/testing/vsock/util.c
+index 8a899a9fc9a987..894221a1ff317d 100644
+--- a/tools/testing/vsock/util.c
++++ b/tools/testing/vsock/util.c
+@@ -663,3 +663,145 @@ void free_test_iovec(const struct iovec *test_iovec,
+ 
+ 	free(iovec);
+ }
++
++/* Set "unsigned long long" socket option and check that it's indeed set */
++void setsockopt_ull_check(int fd, int level, int optname,
++			  unsigned long long val, char const *errmsg)
++{
++	unsigned long long chkval;
++	socklen_t chklen;
++	int err;
++
++	err = setsockopt(fd, level, optname, &val, sizeof(val));
++	if (err) {
++		fprintf(stderr, "setsockopt err: %s (%d)\n",
++			strerror(errno), errno);
++		goto fail;
++	}
++
++	chkval = ~val; /* just make storage != val */
++	chklen = sizeof(chkval);
++
++	err = getsockopt(fd, level, optname, &chkval, &chklen);
++	if (err) {
++		fprintf(stderr, "getsockopt err: %s (%d)\n",
++			strerror(errno), errno);
++		goto fail;
++	}
++
++	if (chklen != sizeof(chkval)) {
++		fprintf(stderr, "size mismatch: set %zu got %d\n", sizeof(val),
++			chklen);
++		goto fail;
++	}
++
++	if (chkval != val) {
++		fprintf(stderr, "value mismatch: set %llu got %llu\n", val,
++			chkval);
++		goto fail;
++	}
++	return;
++fail:
++	fprintf(stderr, "%s  val %llu\n", errmsg, val);
++	exit(EXIT_FAILURE);
++;
++}
++
++/* Set "int" socket option and check that it's indeed set */
++void setsockopt_int_check(int fd, int level, int optname, int val,
++			  char const *errmsg)
++{
++	int chkval;
++	socklen_t chklen;
++	int err;
++
++	err = setsockopt(fd, level, optname, &val, sizeof(val));
++	if (err) {
++		fprintf(stderr, "setsockopt err: %s (%d)\n",
++			strerror(errno), errno);
++		goto fail;
++	}
++
++	chkval = ~val; /* just make storage != val */
++	chklen = sizeof(chkval);
++
++	err = getsockopt(fd, level, optname, &chkval, &chklen);
++	if (err) {
++		fprintf(stderr, "getsockopt err: %s (%d)\n",
++			strerror(errno), errno);
++		goto fail;
++	}
++
++	if (chklen != sizeof(chkval)) {
++		fprintf(stderr, "size mismatch: set %zu got %d\n", sizeof(val),
++			chklen);
++		goto fail;
++	}
++
++	if (chkval != val) {
++		fprintf(stderr, "value mismatch: set %d got %d\n", val, chkval);
++		goto fail;
++	}
++	return;
++fail:
++	fprintf(stderr, "%s val %d\n", errmsg, val);
++	exit(EXIT_FAILURE);
++}
++
++static void mem_invert(unsigned char *mem, size_t size)
++{
++	size_t i;
++
++	for (i = 0; i < size; i++)
++		mem[i] = ~mem[i];
++}
++
++/* Set "timeval" socket option and check that it's indeed set */
++void setsockopt_timeval_check(int fd, int level, int optname,
++			      struct timeval val, char const *errmsg)
++{
++	struct timeval chkval;
++	socklen_t chklen;
++	int err;
++
++	err = setsockopt(fd, level, optname, &val, sizeof(val));
++	if (err) {
++		fprintf(stderr, "setsockopt err: %s (%d)\n",
++			strerror(errno), errno);
++		goto fail;
++	}
++
++	 /* just make storage != val */
++	chkval = val;
++	mem_invert((unsigned char *)&chkval, sizeof(chkval));
++	chklen = sizeof(chkval);
++
++	err = getsockopt(fd, level, optname, &chkval, &chklen);
++	if (err) {
++		fprintf(stderr, "getsockopt err: %s (%d)\n",
++			strerror(errno), errno);
++		goto fail;
++	}
++
++	if (chklen != sizeof(chkval)) {
++		fprintf(stderr, "size mismatch: set %zu got %d\n", sizeof(val),
++			chklen);
++		goto fail;
++	}
++
++	if (memcmp(&chkval, &val, sizeof(val)) != 0) {
++		fprintf(stderr, "value mismatch: set %ld:%ld got %ld:%ld\n",
++			val.tv_sec, val.tv_usec, chkval.tv_sec, chkval.tv_usec);
++		goto fail;
++	}
++	return;
++fail:
++	fprintf(stderr, "%s val %ld:%ld\n", errmsg, val.tv_sec, val.tv_usec);
++	exit(EXIT_FAILURE);
++}
++
++void enable_so_zerocopy_check(int fd)
++{
++	setsockopt_int_check(fd, SOL_SOCKET, SO_ZEROCOPY, 1,
++			     "setsockopt SO_ZEROCOPY");
++}
+diff --git a/tools/testing/vsock/util.h b/tools/testing/vsock/util.h
+index fff22d4a14c0ff..ba84d296d8b71e 100644
+--- a/tools/testing/vsock/util.h
++++ b/tools/testing/vsock/util.h
+@@ -68,4 +68,11 @@ unsigned long iovec_hash_djb2(const struct iovec *iov, size_t iovnum);
+ struct iovec *alloc_test_iovec(const struct iovec *test_iovec, int iovnum);
+ void free_test_iovec(const struct iovec *test_iovec,
+ 		     struct iovec *iovec, int iovnum);
++void setsockopt_ull_check(int fd, int level, int optname,
++			  unsigned long long val, char const *errmsg);
++void setsockopt_int_check(int fd, int level, int optname, int val,
++			  char const *errmsg);
++void setsockopt_timeval_check(int fd, int level, int optname,
++			      struct timeval val, char const *errmsg);
++void enable_so_zerocopy_check(int fd);
+ #endif /* UTIL_H */
+diff --git a/tools/testing/vsock/vsock_perf.c b/tools/testing/vsock/vsock_perf.c
+index 8e0a6c0770d372..75971ac708c9a3 100644
+--- a/tools/testing/vsock/vsock_perf.c
++++ b/tools/testing/vsock/vsock_perf.c
+@@ -251,6 +251,16 @@ static void run_receiver(int rcvlowat_bytes)
+ 	close(fd);
+ }
+ 
++static void enable_so_zerocopy(int fd)
++{
++	int val = 1;
++
++	if (setsockopt(fd, SOL_SOCKET, SO_ZEROCOPY, &val, sizeof(val))) {
++		perror("setsockopt");
++		exit(EXIT_FAILURE);
++	}
++}
++
+ static void run_sender(int peer_cid, unsigned long to_send_bytes)
+ {
+ 	time_t tx_begin_ns;
+diff --git a/tools/testing/vsock/vsock_test.c b/tools/testing/vsock/vsock_test.c
+index 79ef11c0ab14fb..8855094202d403 100644
+--- a/tools/testing/vsock/vsock_test.c
++++ b/tools/testing/vsock/vsock_test.c
+@@ -455,17 +455,13 @@ static void test_seqpacket_msg_bounds_server(const struct test_opts *opts)
+ 
+ 	sock_buf_size = SOCK_BUF_SIZE;
+ 
+-	if (setsockopt(fd, AF_VSOCK, SO_VM_SOCKETS_BUFFER_MAX_SIZE,
+-		       &sock_buf_size, sizeof(sock_buf_size))) {
+-		perror("setsockopt(SO_VM_SOCKETS_BUFFER_MAX_SIZE)");
+-		exit(EXIT_FAILURE);
+-	}
++	setsockopt_ull_check(fd, AF_VSOCK, SO_VM_SOCKETS_BUFFER_MAX_SIZE,
++			     sock_buf_size,
++			     "setsockopt(SO_VM_SOCKETS_BUFFER_MAX_SIZE)");
+ 
+-	if (setsockopt(fd, AF_VSOCK, SO_VM_SOCKETS_BUFFER_SIZE,
+-		       &sock_buf_size, sizeof(sock_buf_size))) {
+-		perror("setsockopt(SO_VM_SOCKETS_BUFFER_SIZE)");
+-		exit(EXIT_FAILURE);
+-	}
++	setsockopt_ull_check(fd, AF_VSOCK, SO_VM_SOCKETS_BUFFER_SIZE,
++			     sock_buf_size,
++			     "setsockopt(SO_VM_SOCKETS_BUFFER_SIZE)");
+ 
+ 	/* Ready to receive data. */
+ 	control_writeln("SRVREADY");
+@@ -597,10 +593,8 @@ static void test_seqpacket_timeout_client(const struct test_opts *opts)
+ 	tv.tv_sec = RCVTIMEO_TIMEOUT_SEC;
+ 	tv.tv_usec = 0;
+ 
+-	if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (void *)&tv, sizeof(tv)) == -1) {
+-		perror("setsockopt(SO_RCVTIMEO)");
+-		exit(EXIT_FAILURE);
+-	}
++	setsockopt_timeval_check(fd, SOL_SOCKET, SO_RCVTIMEO, tv,
++				 "setsockopt(SO_RCVTIMEO)");
+ 
+ 	read_enter_ns = current_nsec();
+ 
+@@ -866,11 +860,8 @@ static void test_stream_poll_rcvlowat_client(const struct test_opts *opts)
+ 		exit(EXIT_FAILURE);
+ 	}
+ 
+-	if (setsockopt(fd, SOL_SOCKET, SO_RCVLOWAT,
+-		       &lowat_val, sizeof(lowat_val))) {
+-		perror("setsockopt(SO_RCVLOWAT)");
+-		exit(EXIT_FAILURE);
+-	}
++	setsockopt_int_check(fd, SOL_SOCKET, SO_RCVLOWAT,
++			     lowat_val, "setsockopt(SO_RCVLOWAT)");
+ 
+ 	control_expectln("SRVSENT");
+ 
+@@ -1398,11 +1389,9 @@ static void test_stream_credit_update_test(const struct test_opts *opts,
+ 	/* size_t can be < unsigned long long */
+ 	sock_buf_size = buf_size;
+ 
+-	if (setsockopt(fd, AF_VSOCK, SO_VM_SOCKETS_BUFFER_SIZE,
+-		       &sock_buf_size, sizeof(sock_buf_size))) {
+-		perror("setsockopt(SO_VM_SOCKETS_BUFFER_SIZE)");
+-		exit(EXIT_FAILURE);
+-	}
++	setsockopt_ull_check(fd, AF_VSOCK, SO_VM_SOCKETS_BUFFER_SIZE,
++			     sock_buf_size,
++			     "setsockopt(SO_VM_SOCKETS_BUFFER_SIZE)");
+ 
+ 	if (low_rx_bytes_test) {
+ 		/* Set new SO_RCVLOWAT here. This enables sending credit
+@@ -1411,11 +1400,8 @@ static void test_stream_credit_update_test(const struct test_opts *opts,
+ 		 */
+ 		recv_buf_size = 1 + VIRTIO_VSOCK_MAX_PKT_BUF_SIZE;
+ 
+-		if (setsockopt(fd, SOL_SOCKET, SO_RCVLOWAT,
+-			       &recv_buf_size, sizeof(recv_buf_size))) {
+-			perror("setsockopt(SO_RCVLOWAT)");
+-			exit(EXIT_FAILURE);
+-		}
++		setsockopt_int_check(fd, SOL_SOCKET, SO_RCVLOWAT,
++				     recv_buf_size, "setsockopt(SO_RCVLOWAT)");
+ 	}
+ 
+ 	/* Send one dummy byte here, because 'setsockopt()' above also
+@@ -1457,11 +1443,8 @@ static void test_stream_credit_update_test(const struct test_opts *opts,
+ 		recv_buf_size++;
+ 
+ 		/* Updating SO_RCVLOWAT will send credit update. */
+-		if (setsockopt(fd, SOL_SOCKET, SO_RCVLOWAT,
+-			       &recv_buf_size, sizeof(recv_buf_size))) {
+-			perror("setsockopt(SO_RCVLOWAT)");
+-			exit(EXIT_FAILURE);
+-		}
++		setsockopt_int_check(fd, SOL_SOCKET, SO_RCVLOWAT,
++				     recv_buf_size, "setsockopt(SO_RCVLOWAT)");
+ 	}
+ 
+ 	fds.fd = fd;
+diff --git a/tools/testing/vsock/vsock_test_zerocopy.c b/tools/testing/vsock/vsock_test_zerocopy.c
+index 04c376b6937f51..9d9a6cb9614ad8 100644
+--- a/tools/testing/vsock/vsock_test_zerocopy.c
++++ b/tools/testing/vsock/vsock_test_zerocopy.c
+@@ -162,7 +162,7 @@ static void test_client(const struct test_opts *opts,
+ 	}
+ 
+ 	if (test_data->so_zerocopy)
+-		enable_so_zerocopy(fd);
++		enable_so_zerocopy_check(fd);
+ 
+ 	iovec = alloc_test_iovec(test_data->vecs, test_data->vecs_cnt);
+ 
+diff --git a/tools/testing/vsock/vsock_uring_test.c b/tools/testing/vsock/vsock_uring_test.c
+index 6c3e6f70c457da..5c3078969659ff 100644
+--- a/tools/testing/vsock/vsock_uring_test.c
++++ b/tools/testing/vsock/vsock_uring_test.c
+@@ -73,7 +73,7 @@ static void vsock_io_uring_client(const struct test_opts *opts,
+ 	}
+ 
+ 	if (msg_zerocopy)
+-		enable_so_zerocopy(fd);
++		enable_so_zerocopy_check(fd);
+ 
+ 	iovec = alloc_test_iovec(test_data->vecs, test_data->vecs_cnt);
+ 

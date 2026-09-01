@@ -1,0 +1,25 @@
+diff --git a/Makefile b/Makefile
+index ca3225cbf130aa..28c9acdd9b3583 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 12
+-SUBLEVEL = 37
++SUBLEVEL = 38
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index 8a740e92e483ed..b42307200e98f3 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -376,6 +376,7 @@ static bool amd_check_tsa_microcode(void)
+ 
+ 	p.ext_fam	= c->x86 - 0xf;
+ 	p.model		= c->x86_model;
++	p.ext_model	= c->x86_model >> 4;
+ 	p.stepping	= c->x86_stepping;
+ 
+ 	if (cpu_has(c, X86_FEATURE_ZEN3) ||

@@ -1,0 +1,24 @@
+diff --git a/Makefile b/Makefile
+index 467d820fa23faf..77f5d180902cd6 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 12
+-SUBLEVEL = 26
++SUBLEVEL = 27
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/kernel/bpf/preload/bpf_preload_kern.c b/kernel/bpf/preload/bpf_preload_kern.c
+index 56a81df7a9d7c1..fdad0eb308fe60 100644
+--- a/kernel/bpf/preload/bpf_preload_kern.c
++++ b/kernel/bpf/preload/bpf_preload_kern.c
+@@ -89,5 +89,5 @@ static void __exit fini(void)
+ }
+ late_initcall(load);
+ module_exit(fini);
+-MODULE_IMPORT_NS("BPF_INTERNAL");
++MODULE_IMPORT_NS(BPF_INTERNAL);
+ MODULE_LICENSE("GPL");
