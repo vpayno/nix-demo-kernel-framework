@@ -51,6 +51,7 @@
               nix develop .#default
               nix develop .#linux_6_6-framework
               nix develop .#linux_6_6-gentoo
+              nix develop .#linux_6_6-patched
               nix develop .#linux_6_6-upstream
           '';
         };
