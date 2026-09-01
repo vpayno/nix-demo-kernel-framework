@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index 9fcf204d08afe..a5a6e44e331b7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 5
+ PATCHLEVEL = 15
+-SUBLEVEL = 205
++SUBLEVEL = 206
+ EXTRAVERSION =
+ NAME = Trick or Treat
+ 
+diff --git a/net/ipv4/ip_output.c b/net/ipv4/ip_output.c
+index 68509e1f89b5b..5d8f8a5901bc6 100644
+--- a/net/ipv4/ip_output.c
++++ b/net/ipv4/ip_output.c
+@@ -1443,7 +1443,7 @@ ssize_t	ip_append_page(struct sock *sk, struct flowi4 *fl4, struct page *page,
+ 			goto error;
+ 		}
+ 
+-		skb_shinfo(skb)->tx_flags |= SKBFL_SHARED_FRAG;
++		skb_shinfo(skb)->flags |= SKBFL_SHARED_FRAG;
+ 
+ 		if (skb->ip_summed == CHECKSUM_NONE) {
+ 			__wsum csum;

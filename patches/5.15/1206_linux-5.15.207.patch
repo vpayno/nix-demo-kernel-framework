@@ -1,0 +1,281 @@
+diff --git a/Makefile b/Makefile
+index a5a6e44e331b7d..905d708fd87b8b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 5
+ PATCHLEVEL = 15
+-SUBLEVEL = 206
++SUBLEVEL = 207
+ EXTRAVERSION =
+ NAME = Trick or Treat
+ 
+diff --git a/arch/x86/include/asm/cpufeatures.h b/arch/x86/include/asm/cpufeatures.h
+index 9fe8a408f1825f..060ae0d8387e79 100644
+--- a/arch/x86/include/asm/cpufeatures.h
++++ b/arch/x86/include/asm/cpufeatures.h
+@@ -219,7 +219,7 @@
+ #define X86_FEATURE_IBRS		( 7*32+25) /* Indirect Branch Restricted Speculation */
+ #define X86_FEATURE_IBPB		( 7*32+26) /* "ibpb" Indirect Branch Prediction Barrier without a guaranteed RSB flush */
+ #define X86_FEATURE_STIBP		( 7*32+27) /* Single Thread Indirect Branch Predictors */
+-#define X86_FEATURE_ZEN			( 7*32+28) /* "" CPU is AMD family 0x17 or above (Zen) */
++#define X86_FEATURE_ZEN			( 7*32+28) /* "" Generic flag for all Zen and newer */
+ #define X86_FEATURE_L1TF_PTEINV		( 7*32+29) /* "" L1TF workaround PTE inversion */
+ #define X86_FEATURE_IBRS_ENHANCED	( 7*32+30) /* Enhanced IBRS */
+ #define X86_FEATURE_MSR_IA32_FEAT_CTL	( 7*32+31) /* "" MSR IA32_FEAT_CTL configured */
+@@ -310,6 +310,10 @@
+ #define X86_FEATURE_SRSO_ALIAS		(11*32+25) /* "" AMD BTB untrain RETs through aliasing */
+ #define X86_FEATURE_IBPB_ON_VMEXIT	(11*32+26) /* "" Issue an IBPB only on VMEXIT */
+ #define X86_FEATURE_APIC_MSRS_FENCE	(11*32+27) /* "" IA32_TSC_DEADLINE and X2APIC MSRs need fencing */
++#define X86_FEATURE_ZEN2		(11*32+28) /* "" CPU based on Zen2 microarchitecture */
++#define X86_FEATURE_ZEN3		(11*32+29) /* "" CPU based on Zen3 microarchitecture */
++#define X86_FEATURE_ZEN4		(11*32+30) /* "" CPU based on Zen4 microarchitecture */
++#define X86_FEATURE_ZEN1		(11*32+31) /* "" CPU based on Zen1 microarchitecture */
+ 
+ /* Intel-defined CPU features, CPUID level 0x00000007:1 (EAX), word 12 */
+ #define X86_FEATURE_AVX_VNNI		(12*32+ 4) /* AVX VNNI instructions */
+diff --git a/arch/x86/include/asm/msr-index.h b/arch/x86/include/asm/msr-index.h
+index 2dff91cda82e6d..093d0bac794193 100644
+--- a/arch/x86/include/asm/msr-index.h
++++ b/arch/x86/include/asm/msr-index.h
+@@ -580,6 +580,7 @@
+ /* Zen4 */
+ #define MSR_ZEN4_BP_CFG			0xc001102e
+ #define MSR_ZEN4_BP_CFG_SHARED_BTB_FIX_BIT 5
++#define MSR_ZEN2_BP_CFG_BUG_FIX_BIT	33
+ 
+ /* Zen 2 */
+ #define MSR_ZEN2_SPECTRAL_CHICKEN	0xc00110e3
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index 94975e9d981c5e..6c1ada204bcfa8 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -708,7 +708,50 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
+ 
+ 	resctrl_cpu_detect(c);
+ 
++	/* Figure out Zen generations: */
++	switch (c->x86) {
++	case 0x17: {
++		switch (c->x86_model) {
++		case 0x00 ... 0x2f:
++		case 0x50 ... 0x5f:
++			setup_force_cpu_cap(X86_FEATURE_ZEN1);
++			break;
++		case 0x30 ... 0x4f:
++		case 0x60 ... 0x7f:
++		case 0x90 ... 0x91:
++		case 0xa0 ... 0xaf:
++			setup_force_cpu_cap(X86_FEATURE_ZEN2);
++			break;
++		default:
++			goto warn;
++		}
++		break;
++	}
++	case 0x19: {
++		switch (c->x86_model) {
++		case 0x00 ... 0x0f:
++		case 0x20 ... 0x5f:
++			setup_force_cpu_cap(X86_FEATURE_ZEN3);
++			break;
++		case 0x10 ... 0x1f:
++		case 0x60 ... 0xaf:
++			setup_force_cpu_cap(X86_FEATURE_ZEN4);
++			break;
++		default:
++			goto warn;
++		}
++		break;
++	}
++	default:
++		break;
++	}
++
+ 	tsa_init(c);
++
++	return;
++
++warn:
++	WARN_ONCE(1, "Family 0x%x, model: 0x%x??\n", c->x86, c->x86_model);
+ }
+ 
+ static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
+@@ -1031,10 +1074,8 @@ void init_spectral_chicken(struct cpuinfo_x86 *c)
+ 	 *
+ 	 * This suppresses speculation from the middle of a basic block, i.e. it
+ 	 * suppresses non-branch predictions.
+-	 *
+-	 * We use STIBP as a heuristic to filter out Zen2 from the rest of F17H
+ 	 */
+-	if (!cpu_has(c, X86_FEATURE_HYPERVISOR) && cpu_has(c, X86_FEATURE_AMD_STIBP)) {
++	if (!cpu_has(c, X86_FEATURE_HYPERVISOR)) {
+ 		if (!rdmsrl_safe(MSR_ZEN2_SPECTRAL_CHICKEN, &value)) {
+ 			value |= MSR_ZEN2_SPECTRAL_CHICKEN_BIT;
+ 			wrmsrl_safe(MSR_ZEN2_SPECTRAL_CHICKEN, value);
+@@ -1052,13 +1093,17 @@ void init_spectral_chicken(struct cpuinfo_x86 *c)
+ 	clear_cpu_cap(c, X86_FEATURE_XSAVES);
+ }
+ 
+-static void init_amd_zn(struct cpuinfo_x86 *c)
++static void init_amd_zen_common(void)
+ {
+-	set_cpu_cap(c, X86_FEATURE_ZEN);
+-
++	setup_force_cpu_cap(X86_FEATURE_ZEN);
+ #ifdef CONFIG_NUMA
+ 	node_reclaim_distance = 32;
+ #endif
++}
++
++static void init_amd_zen1(struct cpuinfo_x86 *c)
++{
++	init_amd_zen_common();
+ 
+ 	/* Fix up CPUID bits, but only if not virtualised. */
+ 	if (!cpu_has(c, X86_FEATURE_HYPERVISOR)) {
+@@ -1121,6 +1166,25 @@ static void zenbleed_check(struct cpuinfo_x86 *c)
+ 	}
+ }
+ 
++static void init_amd_zen2(struct cpuinfo_x86 *c)
++{
++	init_amd_zen_common();
++	init_spectral_chicken(c);
++
++	if (!cpu_has(c, X86_FEATURE_HYPERVISOR))
++		msr_set_bit(MSR_ZEN4_BP_CFG, MSR_ZEN2_BP_CFG_BUG_FIX_BIT);
++}
++
++static void init_amd_zen3(struct cpuinfo_x86 *c)
++{
++	init_amd_zen_common();
++}
++
++static void init_amd_zen4(struct cpuinfo_x86 *c)
++{
++	init_amd_zen_common();
++}
++
+ static void init_amd(struct cpuinfo_x86 *c)
+ {
+ 	early_init_amd(c);
+@@ -1150,11 +1214,17 @@ static void init_amd(struct cpuinfo_x86 *c)
+ 	case 0x12: init_amd_ln(c); break;
+ 	case 0x15: init_amd_bd(c); break;
+ 	case 0x16: init_amd_jg(c); break;
+-	case 0x17: init_spectral_chicken(c);
+-		   fallthrough;
+-	case 0x19: init_amd_zn(c); break;
+ 	}
+ 
++	if (boot_cpu_has(X86_FEATURE_ZEN1))
++		init_amd_zen1(c);
++	else if (boot_cpu_has(X86_FEATURE_ZEN2))
++		init_amd_zen2(c);
++	else if (boot_cpu_has(X86_FEATURE_ZEN3))
++		init_amd_zen3(c);
++	else if (boot_cpu_has(X86_FEATURE_ZEN4))
++		init_amd_zen4(c);
++
+ 	/*
+ 	 * Enable workaround for FXSAVE leak on CPUs
+ 	 * without a XSaveErPtr feature
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index cbf69d0d695211..141039b6d90504 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -896,6 +896,9 @@ struct task_struct {
+ 	 */
+ 	unsigned			sched_remote_wakeup:1;
+ 
++	/* Save user-dumpable when mm goes away */
++	unsigned			user_dumpable:1;
++
+ 	/* Bit to tell LSMs we're in execve(): */
+ 	unsigned			in_execve:1;
+ 	unsigned			in_iowait:1;
+diff --git a/kernel/exit.c b/kernel/exit.c
+index 888a63f076d50d..3c6ddf7320fae6 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -540,6 +540,7 @@ static void exit_mm(void)
+ 	 */
+ 	smp_mb__after_spinlock();
+ 	local_irq_disable();
++	current->user_dumpable = (get_dumpable(mm) == SUID_DUMP_USER);
+ 	current->mm = NULL;
+ 	membarrier_update_current_mm(NULL);
+ 	enter_lazy_tlb(mm, current);
+diff --git a/kernel/ptrace.c b/kernel/ptrace.c
+index 0cf547531ddf0a..8e949e40bfe3a1 100644
+--- a/kernel/ptrace.c
++++ b/kernel/ptrace.c
+@@ -288,11 +288,24 @@ static bool ptrace_has_cap(struct user_namespace *ns, unsigned int mode)
+ 	return ns_capable(ns, CAP_SYS_PTRACE);
+ }
+ 
++static bool task_still_dumpable(struct task_struct *task, unsigned int mode)
++{
++	struct mm_struct *mm = task->mm;
++	if (mm) {
++		if (get_dumpable(mm) == SUID_DUMP_USER)
++			return true;
++		return ptrace_has_cap(mm->user_ns, mode);
++	}
++
++	if (task->user_dumpable)
++		return true;
++	return ptrace_has_cap(&init_user_ns, mode);
++}
++
+ /* Returns 0 on success, -errno on denial. */
+ static int __ptrace_may_access(struct task_struct *task, unsigned int mode)
+ {
+ 	const struct cred *cred = current_cred(), *tcred;
+-	struct mm_struct *mm;
+ 	kuid_t caller_uid;
+ 	kgid_t caller_gid;
+ 
+@@ -353,11 +366,8 @@ ok:
+ 	 * Pairs with a write barrier in commit_creds().
+ 	 */
+ 	smp_rmb();
+-	mm = task->mm;
+-	if (mm &&
+-	    ((get_dumpable(mm) != SUID_DUMP_USER) &&
+-	     !ptrace_has_cap(mm->user_ns, mode)))
+-	    return -EPERM;
++	if (!task_still_dumpable(task, mode))
++		return -EPERM;
+ 
+ 	return security_ptrace_access_check(task, mode);
+ }
+diff --git a/tools/arch/x86/include/asm/cpufeatures.h b/tools/arch/x86/include/asm/cpufeatures.h
+index 861451839cf2fe..9541c0ff941a74 100644
+--- a/tools/arch/x86/include/asm/cpufeatures.h
++++ b/tools/arch/x86/include/asm/cpufeatures.h
+@@ -219,7 +219,7 @@
+ #define X86_FEATURE_IBRS		( 7*32+25) /* Indirect Branch Restricted Speculation */
+ #define X86_FEATURE_IBPB		( 7*32+26) /* Indirect Branch Prediction Barrier */
+ #define X86_FEATURE_STIBP		( 7*32+27) /* Single Thread Indirect Branch Predictors */
+-#define X86_FEATURE_ZEN			( 7*32+28) /* "" CPU is AMD family 0x17 or above (Zen) */
++#define X86_FEATURE_ZEN			( 7*32+28) /* "" Generic flag for all Zen and newer */
+ #define X86_FEATURE_L1TF_PTEINV		( 7*32+29) /* "" L1TF workaround PTE inversion */
+ #define X86_FEATURE_IBRS_ENHANCED	( 7*32+30) /* Enhanced IBRS */
+ #define X86_FEATURE_MSR_IA32_FEAT_CTL	( 7*32+31) /* "" MSR IA32_FEAT_CTL configured */
+diff --git a/tools/arch/x86/include/asm/msr-index.h b/tools/arch/x86/include/asm/msr-index.h
+index 2c0838ee3eacac..658570e4959d72 100644
+--- a/tools/arch/x86/include/asm/msr-index.h
++++ b/tools/arch/x86/include/asm/msr-index.h
+@@ -530,6 +530,9 @@
+ 
+ #define MSR_AMD64_VIRT_SPEC_CTRL	0xc001011f
+ 
++#define MSR_ZEN4_BP_CFG			0xc001102e
++#define MSR_ZEN2_BP_CFG_BUG_FIX_BIT	33
++
+ /* Fam 17h MSRs */
+ #define MSR_F17H_IRPERF			0xc00000e9
+ 

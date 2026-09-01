@@ -1,0 +1,43 @@
+diff --git a/Makefile b/Makefile
+index 6c9463d296dc7a..86a5048e981615 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 5
+ PATCHLEVEL = 15
+-SUBLEVEL = 187
++SUBLEVEL = 188
+ EXTRAVERSION =
+ NAME = Trick or Treat
+ 
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index d409ba7fba85c4..04ac18ff022f7f 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -590,6 +590,7 @@ static bool amd_check_tsa_microcode(void)
+ 
+ 	p.ext_fam	= c->x86 - 0xf;
+ 	p.model		= c->x86_model;
++	p.ext_model	= c->x86_model >> 4;
+ 	p.stepping	= c->x86_stepping;
+ 
+ 	if (c->x86 == 0x19) {
+@@ -704,6 +705,8 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
+ 	}
+ 
+ 	resctrl_cpu_detect(c);
++
++	tsa_init(c);
+ }
+ 
+ static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
+@@ -743,8 +746,6 @@ static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
+ 			goto clear_sev;
+ 
+ 
+-	tsa_init(c);
+-
+ 		return;
+ 
+ clear_all:
