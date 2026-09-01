@@ -1,0 +1,43 @@
+diff --git a/Makefile b/Makefile
+index 4efcf0614caf4a..ebcf5587ebf955 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 1
+-SUBLEVEL = 144
++SUBLEVEL = 145
+ EXTRAVERSION =
+ NAME = Curry Ramen
+ 
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index 3e3679709e9032..4785d41558d61b 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -561,6 +561,7 @@ static bool amd_check_tsa_microcode(void)
+ 
+ 	p.ext_fam	= c->x86 - 0xf;
+ 	p.model		= c->x86_model;
++	p.ext_model	= c->x86_model >> 4;
+ 	p.stepping	= c->x86_stepping;
+ 
+ 	if (c->x86 == 0x19) {
+@@ -675,6 +676,8 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
+ 	}
+ 
+ 	resctrl_cpu_detect(c);
++
++	tsa_init(c);
+ }
+ 
+ static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
+@@ -719,8 +722,6 @@ static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
+ 			goto clear_sev;
+ 
+ 
+-	tsa_init(c);
+-
+ 		return;
+ 
+ clear_all:

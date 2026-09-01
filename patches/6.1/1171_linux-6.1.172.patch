@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index 2b467b2216e74..ce814807f22d1 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 1
+-SUBLEVEL = 171
++SUBLEVEL = 172
+ EXTRAVERSION =
+ NAME = Curry Ramen
+ 
+diff --git a/net/ipv4/ip_output.c b/net/ipv4/ip_output.c
+index ec8279278deae..f5a2ad2b2dbdf 100644
+--- a/net/ipv4/ip_output.c
++++ b/net/ipv4/ip_output.c
+@@ -1463,7 +1463,7 @@ ssize_t	ip_append_page(struct sock *sk, struct flowi4 *fl4, struct page *page,
+ 			goto error;
+ 		}
+ 
+-		skb_shinfo(skb)->tx_flags |= SKBFL_SHARED_FRAG;
++		skb_shinfo(skb)->flags |= SKBFL_SHARED_FRAG;
+ 
+ 		if (skb->ip_summed == CHECKSUM_NONE) {
+ 			__wsum csum;

@@ -1,0 +1,3476 @@
+diff --git a/Makefile b/Makefile
+index 069f3a86181b8f..75a1e91c1b3dbc 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 1
+-SUBLEVEL = 168
++SUBLEVEL = 169
+ EXTRAVERSION =
+ NAME = Curry Ramen
+ 
+diff --git a/arch/arm64/boot/dts/hisilicon/hi3798cv200-poplar.dts b/arch/arm64/boot/dts/hisilicon/hi3798cv200-poplar.dts
+index 7d370dac4c8571..579d55daa7d04e 100644
+--- a/arch/arm64/boot/dts/hisilicon/hi3798cv200-poplar.dts
++++ b/arch/arm64/boot/dts/hisilicon/hi3798cv200-poplar.dts
+@@ -179,7 +179,7 @@
+ };
+ 
+ &pcie {
+-	reset-gpios = <&gpio4 4 GPIO_ACTIVE_HIGH>;
++	reset-gpios = <&gpio4 4 GPIO_ACTIVE_LOW>;
+ 	vpcie-supply = <&reg_pcie>;
+ 	status = "okay";
+ };
+diff --git a/arch/arm64/boot/dts/hisilicon/hi3798cv200.dtsi b/arch/arm64/boot/dts/hisilicon/hi3798cv200.dtsi
+index add54f4e7be97a..8196f946cfbce5 100644
+--- a/arch/arm64/boot/dts/hisilicon/hi3798cv200.dtsi
++++ b/arch/arm64/boot/dts/hisilicon/hi3798cv200.dtsi
+@@ -81,6 +81,7 @@
+ 		#address-cells = <1>;
+ 		#size-cells = <1>;
+ 		ranges = <0x0 0x0 0xf0000000 0x10000000>;
++		dma-ranges = <0x0 0x0 0x0 0x40000000>;
+ 
+ 		crg: clock-reset-controller@8a22000 {
+ 			compatible = "hisilicon,hi3798cv200-crg", "syscon", "simple-mfd";
+diff --git a/arch/mips/include/asm/cpu-features.h b/arch/mips/include/asm/cpu-features.h
+index e0a4da4cfd8bc0..53ea41be373517 100644
+--- a/arch/mips/include/asm/cpu-features.h
++++ b/arch/mips/include/asm/cpu-features.h
+@@ -484,7 +484,6 @@
+ # endif
+ # ifndef cpu_vmbits
+ # define cpu_vmbits cpu_data[0].vmbits
+-# define __NEED_VMBITS_PROBE
+ # endif
+ #endif
+ 
+diff --git a/arch/mips/include/asm/cpu-info.h b/arch/mips/include/asm/cpu-info.h
+index a600670d00e970..1aee44124f1187 100644
+--- a/arch/mips/include/asm/cpu-info.h
++++ b/arch/mips/include/asm/cpu-info.h
+@@ -80,9 +80,7 @@ struct cpuinfo_mips {
+ 	int			srsets; /* Shadow register sets */
+ 	int			package;/* physical package number */
+ 	unsigned int		globalnumber;
+-#ifdef CONFIG_64BIT
+ 	int			vmbits; /* Virtual memory size in bits */
+-#endif
+ 	void			*data;	/* Additional data */
+ 	unsigned int		watch_reg_count;   /* Number that exist */
+ 	unsigned int		watch_reg_use_cnt; /* Usable by ptrace */
+diff --git a/arch/mips/include/asm/mipsregs.h b/arch/mips/include/asm/mipsregs.h
+index c60e72917a2813..581aa8876a74cd 100644
+--- a/arch/mips/include/asm/mipsregs.h
++++ b/arch/mips/include/asm/mipsregs.h
+@@ -1714,6 +1714,8 @@ do {									\
+ 
+ #define read_c0_entryhi()	__read_ulong_c0_register($10, 0)
+ #define write_c0_entryhi(val)	__write_ulong_c0_register($10, 0, val)
++#define read_c0_entryhi_64()	__read_64bit_c0_register($10, 0)
++#define write_c0_entryhi_64(val) __write_64bit_c0_register($10, 0, val)
+ 
+ #define read_c0_guestctl1()	__read_32bit_c0_register($10, 4)
+ #define write_c0_guestctl1(val)	__write_32bit_c0_register($10, 4, val)
+diff --git a/arch/mips/kernel/cpu-probe.c b/arch/mips/kernel/cpu-probe.c
+index fdf00c228b67f6..09d95482957a47 100644
+--- a/arch/mips/kernel/cpu-probe.c
++++ b/arch/mips/kernel/cpu-probe.c
+@@ -208,11 +208,14 @@ static inline void set_elf_base_platform(const char *plat)
+ 
+ static inline void cpu_probe_vmbits(struct cpuinfo_mips *c)
+ {
+-#ifdef __NEED_VMBITS_PROBE
+-	write_c0_entryhi(0x3fffffffffffe000ULL);
+-	back_to_back_c0_hazard();
+-	c->vmbits = fls64(read_c0_entryhi() & 0x3fffffffffffe000ULL);
+-#endif
++	int vmbits = 31;
++
++	if (cpu_has_64bits) {
++		write_c0_entryhi_64(0x3fffffffffffe000ULL);
++		back_to_back_c0_hazard();
++		vmbits = fls64(read_c0_entryhi_64() & 0x3fffffffffffe000ULL);
++	}
++	c->vmbits = vmbits;
+ }
+ 
+ static void set_isa(struct cpuinfo_mips *c, unsigned int isa)
+diff --git a/arch/mips/kernel/cpu-r3k-probe.c b/arch/mips/kernel/cpu-r3k-probe.c
+index be93469c0e0eca..2adf95225aa7ee 100644
+--- a/arch/mips/kernel/cpu-r3k-probe.c
++++ b/arch/mips/kernel/cpu-r3k-probe.c
+@@ -138,6 +138,8 @@ void cpu_probe(void)
+ 	else
+ 		cpu_set_nofpu_opts(c);
+ 
++	c->vmbits = 31;
++
+ 	reserve_exception_space(0, 0x400);
+ }
+ 
+diff --git a/arch/mips/mm/tlb-r4k.c b/arch/mips/mm/tlb-r4k.c
+index d9631f3b6460d3..8d111f0a5296e4 100644
+--- a/arch/mips/mm/tlb-r4k.c
++++ b/arch/mips/mm/tlb-r4k.c
+@@ -13,6 +13,7 @@
+ #include <linux/sched.h>
+ #include <linux/smp.h>
+ #include <linux/memblock.h>
++#include <linux/minmax.h>
+ #include <linux/mm.h>
+ #include <linux/hugetlb.h>
+ #include <linux/export.h>
+@@ -24,6 +25,7 @@
+ #include <asm/hazards.h>
+ #include <asm/mmu_context.h>
+ #include <asm/tlb.h>
++#include <asm/tlbdebug.h>
+ #include <asm/tlbmisc.h>
+ 
+ extern void build_tlb_refill_handler(void);
+@@ -501,87 +503,259 @@ static int __init set_ntlb(char *str)
+ __setup("ntlb=", set_ntlb);
+ 
+ 
+-/* Comparison function for EntryHi VPN fields.  */
+-static int r4k_vpn_cmp(const void *a, const void *b)
++/* The start bit position of VPN2 and Mask in EntryHi/PageMask registers.  */
++#define VPN2_SHIFT 13
++
++/* Read full EntryHi even with CONFIG_32BIT.  */
++static inline unsigned long long read_c0_entryhi_native(void)
++{
++	return cpu_has_64bits ? read_c0_entryhi_64() : read_c0_entryhi();
++}
++
++/* Write full EntryHi even with CONFIG_32BIT.  */
++static inline void write_c0_entryhi_native(unsigned long long v)
+ {
+-	long v = *(unsigned long *)a - *(unsigned long *)b;
+-	int s = sizeof(long) > sizeof(int) ? sizeof(long) * 8 - 1: 0;
+-	return s ? (v != 0) | v >> s : v;
++	if (cpu_has_64bits)
++		write_c0_entryhi_64(v);
++	else
++		write_c0_entryhi(v);
+ }
+ 
++/* TLB entry state for uniquification.  */
++struct tlbent {
++	unsigned long long wired:1;
++	unsigned long long global:1;
++	unsigned long long asid:10;
++	unsigned long long vpn:51;
++	unsigned long long pagesz:5;
++	unsigned long long index:14;
++};
++
+ /*
+- * Initialise all TLB entries with unique values that do not clash with
+- * what we have been handed over and what we'll be using ourselves.
++ * Comparison function for TLB entry sorting.  Place wired entries first,
++ * then global entries, then order by the increasing VPN/ASID and the
++ * decreasing page size.  This lets us avoid clashes with wired entries
++ * easily and get entries for larger pages out of the way first.
++ *
++ * We could group bits so as to reduce the number of comparisons, but this
++ * is seldom executed and not performance-critical, so prefer legibility.
+  */
+-static void __ref r4k_tlb_uniquify(void)
++static int r4k_entry_cmp(const void *a, const void *b)
+ {
+-	int tlbsize = current_cpu_data.tlbsize;
+-	bool use_slab = slab_is_available();
+-	int start = num_wired_entries();
+-	phys_addr_t tlb_vpn_size;
+-	unsigned long *tlb_vpns;
+-	unsigned long vpn_mask;
+-	int cnt, ent, idx, i;
+-
+-	vpn_mask = GENMASK(cpu_vmbits - 1, 13);
+-	vpn_mask |= IS_ENABLED(CONFIG_64BIT) ? 3ULL << 62 : 1 << 31;
++	struct tlbent ea = *(struct tlbent *)a, eb = *(struct tlbent *)b;
++
++	if (ea.wired > eb.wired)
++		return -1;
++	else if (ea.wired < eb.wired)
++		return 1;
++	else if (ea.global > eb.global)
++		return -1;
++	else if (ea.global < eb.global)
++		return 1;
++	else if (ea.vpn < eb.vpn)
++		return -1;
++	else if (ea.vpn > eb.vpn)
++		return 1;
++	else if (ea.asid < eb.asid)
++		return -1;
++	else if (ea.asid > eb.asid)
++		return 1;
++	else if (ea.pagesz > eb.pagesz)
++		return -1;
++	else if (ea.pagesz < eb.pagesz)
++		return 1;
++	else
++		return 0;
++}
+ 
+-	tlb_vpn_size = tlbsize * sizeof(*tlb_vpns);
+-	tlb_vpns = (use_slab ?
+-		    kmalloc(tlb_vpn_size, GFP_ATOMIC) :
+-		    memblock_alloc_raw(tlb_vpn_size, sizeof(*tlb_vpns)));
+-	if (WARN_ON(!tlb_vpns))
+-		return; /* Pray local_flush_tlb_all() is good enough. */
++/*
++ * Fetch all the TLB entries.  Mask individual VPN values retrieved with
++ * the corresponding page mask and ignoring any 1KiB extension as we'll
++ * be using 4KiB pages for uniquification.
++ */
++static void __ref r4k_tlb_uniquify_read(struct tlbent *tlb_vpns, int tlbsize)
++{
++	int start = num_wired_entries();
++	unsigned long long vpn_mask;
++	bool global;
++	int i;
+ 
+-	htw_stop();
++	vpn_mask = GENMASK(current_cpu_data.vmbits - 1, VPN2_SHIFT);
++	vpn_mask |= cpu_has_64bits ? 3ULL << 62 : 1 << 31;
+ 
+-	for (i = start, cnt = 0; i < tlbsize; i++, cnt++) {
+-		unsigned long vpn;
++	for (i = 0; i < tlbsize; i++) {
++		unsigned long long entryhi, vpn, mask, asid;
++		unsigned int pagesz;
+ 
+ 		write_c0_index(i);
+ 		mtc0_tlbr_hazard();
+ 		tlb_read();
+ 		tlb_read_hazard();
+-		vpn = read_c0_entryhi();
+-		vpn &= vpn_mask & PAGE_MASK;
+-		tlb_vpns[cnt] = vpn;
+ 
+-		/* Prevent any large pages from overlapping regular ones.  */
+-		write_c0_pagemask(read_c0_pagemask() & PM_DEFAULT_MASK);
+-		mtc0_tlbw_hazard();
+-		tlb_write_indexed();
+-		tlbw_use_hazard();
++		global = !!(read_c0_entrylo0() & ENTRYLO_G);
++		entryhi = read_c0_entryhi_native();
++		mask = read_c0_pagemask();
++
++		asid = entryhi & cpu_asid_mask(&current_cpu_data);
++		vpn = (entryhi & vpn_mask & ~mask) >> VPN2_SHIFT;
++		pagesz = ilog2((mask >> VPN2_SHIFT) + 1);
++
++		tlb_vpns[i].global = global;
++		tlb_vpns[i].asid = global ? 0 : asid;
++		tlb_vpns[i].vpn = vpn;
++		tlb_vpns[i].pagesz = pagesz;
++		tlb_vpns[i].wired = i < start;
++		tlb_vpns[i].index = i;
+ 	}
++}
+ 
+-	sort(tlb_vpns, cnt, sizeof(tlb_vpns[0]), r4k_vpn_cmp, NULL);
++/*
++ * Write unique values to all but the wired TLB entries each, using
++ * the 4KiB page size.  This size might not be supported with R6, but
++ * EHINV is mandatory for R6, so we won't ever be called in that case.
++ *
++ * A sorted table is supplied with any wired entries at the beginning,
++ * followed by any global entries, and then finally regular entries.
++ * We start at the VPN and ASID values of zero and only assign user
++ * addresses, therefore guaranteeing no clash with addresses produced
++ * by UNIQUE_ENTRYHI.  We avoid any VPN values used by wired or global
++ * entries, by increasing the VPN value beyond the span of such entry.
++ *
++ * When a VPN/ASID clash is found with a regular entry we increment the
++ * ASID instead until no VPN/ASID clash has been found or the ASID space
++ * has been exhausted, in which case we increase the VPN value beyond
++ * the span of the largest clashing entry.
++ *
++ * We do not need to be concerned about FTLB or MMID configurations as
++ * those are required to implement the EHINV feature.
++ */
++static void __ref r4k_tlb_uniquify_write(struct tlbent *tlb_vpns, int tlbsize)
++{
++	unsigned long long asid, vpn, vpn_size, pagesz;
++	int widx, gidx, idx, sidx, lidx, i;
+ 
+-	write_c0_pagemask(PM_DEFAULT_MASK);
++	vpn_size = 1ULL << (current_cpu_data.vmbits - VPN2_SHIFT);
++	pagesz = ilog2((PM_4K >> VPN2_SHIFT) + 1);
++
++	write_c0_pagemask(PM_4K);
+ 	write_c0_entrylo0(0);
+ 	write_c0_entrylo1(0);
+ 
+-	idx = 0;
+-	ent = tlbsize;
+-	for (i = start; i < tlbsize; i++)
+-		while (1) {
+-			unsigned long entryhi, vpn;
++	asid = 0;
++	vpn = 0;
++	widx = 0;
++	gidx = 0;
++	for (sidx = 0; sidx < tlbsize && tlb_vpns[sidx].wired; sidx++)
++		;
++	for (lidx = sidx; lidx < tlbsize && tlb_vpns[lidx].global; lidx++)
++		;
++	idx = gidx = sidx + 1;
++	for (i = sidx; i < tlbsize; i++) {
++		unsigned long long entryhi, vpn_pagesz = 0;
+ 
+-			entryhi = UNIQUE_ENTRYHI(ent);
+-			vpn = entryhi & vpn_mask & PAGE_MASK;
++		while (1) {
++			if (WARN_ON(vpn >= vpn_size)) {
++				dump_tlb_all();
++				/* Pray local_flush_tlb_all() will cope.  */
++				return;
++			}
+ 
+-			if (idx >= cnt || vpn < tlb_vpns[idx]) {
+-				write_c0_entryhi(entryhi);
+-				write_c0_index(i);
+-				mtc0_tlbw_hazard();
+-				tlb_write_indexed();
+-				ent++;
+-				break;
+-			} else if (vpn == tlb_vpns[idx]) {
+-				ent++;
+-			} else {
++			/* VPN must be below the next wired entry.  */
++			if (widx < sidx && vpn >= tlb_vpns[widx].vpn) {
++				vpn = max(vpn,
++					  (tlb_vpns[widx].vpn +
++					   (1ULL << tlb_vpns[widx].pagesz)));
++				asid = 0;
++				widx++;
++				continue;
++			}
++			/* VPN must be below the next global entry.  */
++			if (gidx < lidx && vpn >= tlb_vpns[gidx].vpn) {
++				vpn = max(vpn,
++					  (tlb_vpns[gidx].vpn +
++					   (1ULL << tlb_vpns[gidx].pagesz)));
++				asid = 0;
++				gidx++;
++				continue;
++			}
++			/* Try to find a free ASID so as to conserve VPNs.  */
++			if (idx < tlbsize && vpn == tlb_vpns[idx].vpn &&
++			    asid == tlb_vpns[idx].asid) {
++				unsigned long long idx_pagesz;
++
++				idx_pagesz = tlb_vpns[idx].pagesz;
++				vpn_pagesz = max(vpn_pagesz, idx_pagesz);
++				do
++					idx++;
++				while (idx < tlbsize &&
++				       vpn == tlb_vpns[idx].vpn &&
++				       asid == tlb_vpns[idx].asid);
++				asid++;
++				if (asid > cpu_asid_mask(&current_cpu_data)) {
++					vpn += vpn_pagesz;
++					asid = 0;
++					vpn_pagesz = 0;
++				}
++				continue;
++			}
++			/* VPN mustn't be above the next regular entry.  */
++			if (idx < tlbsize && vpn > tlb_vpns[idx].vpn) {
++				vpn = max(vpn,
++					  (tlb_vpns[idx].vpn +
++					   (1ULL << tlb_vpns[idx].pagesz)));
++				asid = 0;
+ 				idx++;
++				continue;
+ 			}
++			break;
+ 		}
+ 
++		entryhi = (vpn << VPN2_SHIFT) | asid;
++		write_c0_entryhi_native(entryhi);
++		write_c0_index(tlb_vpns[i].index);
++		mtc0_tlbw_hazard();
++		tlb_write_indexed();
++
++		tlb_vpns[i].asid = asid;
++		tlb_vpns[i].vpn = vpn;
++		tlb_vpns[i].pagesz = pagesz;
++
++		asid++;
++		if (asid > cpu_asid_mask(&current_cpu_data)) {
++			vpn += 1ULL << pagesz;
++			asid = 0;
++		}
++	}
++}
++
++/*
++ * Initialise all TLB entries with unique values that do not clash with
++ * what we have been handed over and what we'll be using ourselves.
++ */
++static void __ref r4k_tlb_uniquify(void)
++{
++	int tlbsize = current_cpu_data.tlbsize;
++	bool use_slab = slab_is_available();
++	phys_addr_t tlb_vpn_size;
++	struct tlbent *tlb_vpns;
++
++	tlb_vpn_size = tlbsize * sizeof(*tlb_vpns);
++	tlb_vpns = (use_slab ?
++		    kmalloc(tlb_vpn_size, GFP_ATOMIC) :
++		    memblock_alloc_raw(tlb_vpn_size, sizeof(*tlb_vpns)));
++	if (WARN_ON(!tlb_vpns))
++		return; /* Pray local_flush_tlb_all() is good enough. */
++
++	htw_stop();
++
++	r4k_tlb_uniquify_read(tlb_vpns, tlbsize);
++
++	sort(tlb_vpns, tlbsize, sizeof(*tlb_vpns), r4k_entry_cmp, NULL);
++
++	r4k_tlb_uniquify_write(tlb_vpns, tlbsize);
++
++	write_c0_pagemask(PM_DEFAULT_MASK);
++
+ 	tlbw_use_hazard();
+ 	htw_start();
+ 	flush_micro_tlb();
+@@ -630,7 +804,8 @@ static void r4k_tlb_configure(void)
+ 	temp_tlb_entry = current_cpu_data.tlbsize - 1;
+ 
+ 	/* From this point on the ARC firmware is dead.	 */
+-	r4k_tlb_uniquify();
++	if (!cpu_has_tlbinv)
++		r4k_tlb_uniquify();
+ 	local_flush_tlb_all();
+ 
+ 	/* Did I tell you that ARC SUCKS?  */
+diff --git a/arch/x86/include/asm/msr-index.h b/arch/x86/include/asm/msr-index.h
+index 749e7fe245e657..5b8268afc0358c 100644
+--- a/arch/x86/include/asm/msr-index.h
++++ b/arch/x86/include/asm/msr-index.h
+@@ -580,6 +580,9 @@
+ #define MSR_AMD64_DC_CFG		0xc0011022
+ #define MSR_AMD64_TW_CFG		0xc0011023
+ 
++#define MSR_AMD64_FP_CFG		0xc0011028
++#define MSR_AMD64_FP_CFG_ZEN1_DENORM_FIX_BIT	9
++
+ #define MSR_AMD64_DE_CFG		0xc0011029
+ #define MSR_AMD64_DE_CFG_LFENCE_SERIALIZE_BIT	 1
+ #define MSR_AMD64_DE_CFG_LFENCE_SERIALIZE	BIT_ULL(MSR_AMD64_DE_CFG_LFENCE_SERIALIZE_BIT)
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index 2d71c329b3475c..1ba9fcfde6d20c 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -1051,6 +1051,9 @@ static void init_amd_zn(struct cpuinfo_x86 *c)
+ 		if (c->x86 == 0x19 && !cpu_has(c, X86_FEATURE_BTC_NO))
+ 			set_cpu_cap(c, X86_FEATURE_BTC_NO);
+ 	}
++
++	pr_notice_once("AMD Zen1 FPDSS bug detected, enabling mitigation.\n");
++	msr_set_bit(MSR_AMD64_FP_CFG, MSR_AMD64_FP_CFG_ZEN1_DENORM_FIX_BIT);
+ }
+ 
+ static bool cpu_has_zenbleed_microcode(void)
+diff --git a/drivers/acpi/acpica/acevents.h b/drivers/acpi/acpica/acevents.h
+index e4d4a4e744a4fe..aab04e5c7b41c2 100644
+--- a/drivers/acpi/acpica/acevents.h
++++ b/drivers/acpi/acpica/acevents.h
+@@ -188,13 +188,9 @@ acpi_ev_detach_region(union acpi_operand_object *region_obj,
+ 		      u8 acpi_ns_is_locked);
+ 
+ void
+-acpi_ev_execute_reg_methods(struct acpi_namespace_node *node,
++acpi_ev_execute_reg_methods(struct acpi_namespace_node *node, u32 max_depth,
+ 			    acpi_adr_space_type space_id, u32 function);
+ 
+-void
+-acpi_ev_execute_orphan_reg_method(struct acpi_namespace_node *node,
+-				  acpi_adr_space_type space_id);
+-
+ acpi_status
+ acpi_ev_execute_reg_method(union acpi_operand_object *region_obj, u32 function);
+ 
+diff --git a/drivers/acpi/acpica/evregion.c b/drivers/acpi/acpica/evregion.c
+index 3c9e4a6f24aa34..ee04eea450894d 100644
+--- a/drivers/acpi/acpica/evregion.c
++++ b/drivers/acpi/acpica/evregion.c
+@@ -20,6 +20,10 @@ extern u8 acpi_gbl_default_address_spaces[];
+ 
+ /* Local prototypes */
+ 
++static void
++acpi_ev_execute_orphan_reg_method(struct acpi_namespace_node *device_node,
++				  acpi_adr_space_type space_id);
++
+ static acpi_status
+ acpi_ev_reg_run(acpi_handle obj_handle,
+ 		u32 level, void *context, void **return_value);
+@@ -61,6 +65,7 @@ acpi_status acpi_ev_initialize_op_regions(void)
+ 						acpi_gbl_default_address_spaces
+ 						[i])) {
+ 			acpi_ev_execute_reg_methods(acpi_gbl_root_node,
++						    ACPI_UINT32_MAX,
+ 						    acpi_gbl_default_address_spaces
+ 						    [i], ACPI_REG_CONNECT);
+ 		}
+@@ -661,6 +666,7 @@ cleanup1:
+  * FUNCTION:    acpi_ev_execute_reg_methods
+  *
+  * PARAMETERS:  node            - Namespace node for the device
++ *              max_depth       - Depth to which search for _REG
+  *              space_id        - The address space ID
+  *              function        - Passed to _REG: On (1) or Off (0)
+  *
+@@ -672,7 +678,7 @@ cleanup1:
+  ******************************************************************************/
+ 
+ void
+-acpi_ev_execute_reg_methods(struct acpi_namespace_node *node,
++acpi_ev_execute_reg_methods(struct acpi_namespace_node *node, u32 max_depth,
+ 			    acpi_adr_space_type space_id, u32 function)
+ {
+ 	struct acpi_reg_walk_info info;
+@@ -706,7 +712,7 @@ acpi_ev_execute_reg_methods(struct acpi_namespace_node *node,
+ 	 * regions and _REG methods. (i.e. handlers must be installed for all
+ 	 * regions of this Space ID before we can run any _REG methods)
+ 	 */
+-	(void)acpi_ns_walk_namespace(ACPI_TYPE_ANY, node, ACPI_UINT32_MAX,
++	(void)acpi_ns_walk_namespace(ACPI_TYPE_ANY, node, max_depth,
+ 				     ACPI_NS_WALK_UNLOCK, acpi_ev_reg_run, NULL,
+ 				     &info, NULL);
+ 
+@@ -807,7 +813,7 @@ acpi_ev_reg_run(acpi_handle obj_handle,
+  *
+  ******************************************************************************/
+ 
+-void
++static void
+ acpi_ev_execute_orphan_reg_method(struct acpi_namespace_node *device_node,
+ 				  acpi_adr_space_type space_id)
+ {
+diff --git a/drivers/acpi/acpica/evxfregn.c b/drivers/acpi/acpica/evxfregn.c
+index a56d4dd51835ed..0689eb3fceaf9c 100644
+--- a/drivers/acpi/acpica/evxfregn.c
++++ b/drivers/acpi/acpica/evxfregn.c
+@@ -85,7 +85,8 @@ acpi_install_address_space_handler_internal(acpi_handle device,
+ 	/* Run all _REG methods for this address space */
+ 
+ 	if (run_reg) {
+-		acpi_ev_execute_reg_methods(node, space_id, ACPI_REG_CONNECT);
++		acpi_ev_execute_reg_methods(node, ACPI_UINT32_MAX, space_id,
++					    ACPI_REG_CONNECT);
+ 	}
+ 
+ unlock_and_exit:
+@@ -261,6 +262,7 @@ ACPI_EXPORT_SYMBOL(acpi_remove_address_space_handler)
+  * FUNCTION:    acpi_execute_reg_methods
+  *
+  * PARAMETERS:  device          - Handle for the device
++ *              max_depth       - Depth to which search for _REG
+  *              space_id        - The address space ID
+  *
+  * RETURN:      Status
+@@ -269,7 +271,8 @@ ACPI_EXPORT_SYMBOL(acpi_remove_address_space_handler)
+  *
+  ******************************************************************************/
+ acpi_status
+-acpi_execute_reg_methods(acpi_handle device, acpi_adr_space_type space_id)
++acpi_execute_reg_methods(acpi_handle device, u32 max_depth,
++			 acpi_adr_space_type space_id)
+ {
+ 	struct acpi_namespace_node *node;
+ 	acpi_status status;
+@@ -294,7 +297,8 @@ acpi_execute_reg_methods(acpi_handle device, acpi_adr_space_type space_id)
+ 
+ 		/* Run all _REG methods for this address space */
+ 
+-		acpi_ev_execute_reg_methods(node, space_id, ACPI_REG_CONNECT);
++		acpi_ev_execute_reg_methods(node, max_depth, space_id,
++					    ACPI_REG_CONNECT);
+ 	} else {
+ 		status = AE_BAD_PARAMETER;
+ 	}
+@@ -304,57 +308,3 @@ acpi_execute_reg_methods(acpi_handle device, acpi_adr_space_type space_id)
+ }
+ 
+ ACPI_EXPORT_SYMBOL(acpi_execute_reg_methods)
+-
+-/*******************************************************************************
+- *
+- * FUNCTION:    acpi_execute_orphan_reg_method
+- *
+- * PARAMETERS:  device          - Handle for the device
+- *              space_id        - The address space ID
+- *
+- * RETURN:      Status
+- *
+- * DESCRIPTION: Execute an "orphan" _REG method that appears under an ACPI
+- *              device. This is a _REG method that has no corresponding region
+- *              within the device's scope.
+- *
+- ******************************************************************************/
+-acpi_status
+-acpi_execute_orphan_reg_method(acpi_handle device, acpi_adr_space_type space_id)
+-{
+-	struct acpi_namespace_node *node;
+-	acpi_status status;
+-
+-	ACPI_FUNCTION_TRACE(acpi_execute_orphan_reg_method);
+-
+-	/* Parameter validation */
+-
+-	if (!device) {
+-		return_ACPI_STATUS(AE_BAD_PARAMETER);
+-	}
+-
+-	status = acpi_ut_acquire_mutex(ACPI_MTX_NAMESPACE);
+-	if (ACPI_FAILURE(status)) {
+-		return_ACPI_STATUS(status);
+-	}
+-
+-	/* Convert and validate the device handle */
+-
+-	node = acpi_ns_validate_handle(device);
+-	if (node) {
+-
+-		/*
+-		 * If an "orphan" _REG method is present in the device's scope
+-		 * for the given address space ID, run it.
+-		 */
+-
+-		acpi_ev_execute_orphan_reg_method(node, space_id);
+-	} else {
+-		status = AE_BAD_PARAMETER;
+-	}
+-
+-	(void)acpi_ut_release_mutex(ACPI_MTX_NAMESPACE);
+-	return_ACPI_STATUS(status);
+-}
+-
+-ACPI_EXPORT_SYMBOL(acpi_execute_orphan_reg_method)
+diff --git a/drivers/acpi/ec.c b/drivers/acpi/ec.c
+index 0c8920161bec0c..d00fd26c274f21 100644
+--- a/drivers/acpi/ec.c
++++ b/drivers/acpi/ec.c
+@@ -1512,12 +1512,13 @@ static bool install_gpio_irq_event_handler(struct acpi_ec *ec)
+ static int ec_install_handlers(struct acpi_ec *ec, struct acpi_device *device,
+ 			       bool call_reg)
+ {
+-	acpi_handle scope_handle = ec == first_ec ? ACPI_ROOT_OBJECT : ec->handle;
+ 	acpi_status status;
+ 
+ 	acpi_ec_start(ec, false);
+ 
+ 	if (!test_bit(EC_FLAGS_EC_HANDLER_INSTALLED, &ec->flags)) {
++		acpi_handle scope_handle = ec == first_ec ? ACPI_ROOT_OBJECT : ec->handle;
++
+ 		acpi_ec_enter_noirq(ec);
+ 		status = acpi_install_address_space_handler_no_reg(scope_handle,
+ 								   ACPI_ADR_SPACE_EC,
+@@ -1531,10 +1532,7 @@ static int ec_install_handlers(struct acpi_ec *ec, struct acpi_device *device,
+ 	}
+ 
+ 	if (call_reg && !test_bit(EC_FLAGS_EC_REG_CALLED, &ec->flags)) {
+-		acpi_execute_reg_methods(scope_handle, ACPI_ADR_SPACE_EC);
+-		if (scope_handle != ec->handle)
+-			acpi_execute_orphan_reg_method(ec->handle, ACPI_ADR_SPACE_EC);
+-
++		acpi_execute_reg_methods(ec->handle, ACPI_UINT32_MAX, ACPI_ADR_SPACE_EC);
+ 		set_bit(EC_FLAGS_EC_REG_CALLED, &ec->flags);
+ 	}
+ 
+@@ -1752,6 +1750,12 @@ static int acpi_ec_remove(struct acpi_device *device)
+ 	return 0;
+ }
+ 
++void acpi_ec_register_opregions(struct acpi_device *adev)
++{
++	if (first_ec && first_ec->handle != adev->handle)
++		acpi_execute_reg_methods(adev->handle, 1, ACPI_ADR_SPACE_EC);
++}
++
+ static acpi_status
+ ec_parse_io_ports(struct acpi_resource *resource, void *context)
+ {
+diff --git a/drivers/acpi/internal.h b/drivers/acpi/internal.h
+index 219c02df9a08c7..4e742b5ee67900 100644
+--- a/drivers/acpi/internal.h
++++ b/drivers/acpi/internal.h
+@@ -210,6 +210,7 @@ int acpi_ec_add_query_handler(struct acpi_ec *ec, u8 query_bit,
+ 			      acpi_handle handle, acpi_ec_query_func func,
+ 			      void *data);
+ void acpi_ec_remove_query_handler(struct acpi_ec *ec, u8 query_bit);
++void acpi_ec_register_opregions(struct acpi_device *adev);
+ 
+ #ifdef CONFIG_PM_SLEEP
+ void acpi_ec_flush_work(void);
+diff --git a/drivers/acpi/scan.c b/drivers/acpi/scan.c
+index 9e8f38e525893f..d1c81ad9b2f679 100644
+--- a/drivers/acpi/scan.c
++++ b/drivers/acpi/scan.c
+@@ -2198,6 +2198,8 @@ static int acpi_bus_attach(struct acpi_device *device, void *first_pass)
+ 	if (device->handler)
+ 		goto ok;
+ 
++	acpi_ec_register_opregions(device);
++
+ 	if (!device->flags.initialized) {
+ 		device->flags.power_manageable =
+ 			device->power.states[ACPI_STATE_D0].flags.valid;
+diff --git a/drivers/edac/edac_mc.c b/drivers/edac/edac_mc.c
+index 6faeb2ab39601b..952ebd94e0ece1 100644
+--- a/drivers/edac/edac_mc.c
++++ b/drivers/edac/edac_mc.c
+@@ -369,13 +369,13 @@ struct mem_ctl_info *edac_mc_alloc(unsigned int mc_num,
+ 	if (!mci->layers)
+ 		goto error;
+ 
++	mci->dev.release = mci_release;
++	device_initialize(&mci->dev);
++
+ 	mci->pvt_info = kzalloc(sz_pvt, GFP_KERNEL);
+ 	if (!mci->pvt_info)
+ 		goto error;
+ 
+-	mci->dev.release = mci_release;
+-	device_initialize(&mci->dev);
+-
+ 	/* setup index and various internal pointers */
+ 	mci->mc_idx = mc_num;
+ 	mci->tot_dimms = tot_dimms;
+diff --git a/drivers/gpu/drm/i915/gt/intel_engine_heartbeat.c b/drivers/gpu/drm/i915/gt/intel_engine_heartbeat.c
+index a3698f611f4577..95e90c24a9393d 100644
+--- a/drivers/gpu/drm/i915/gt/intel_engine_heartbeat.c
++++ b/drivers/gpu/drm/i915/gt/intel_engine_heartbeat.c
+@@ -116,10 +116,12 @@ static void heartbeat(struct work_struct *wrk)
+ 	/* Just in case everything has gone horribly wrong, give it a kick */
+ 	intel_engine_flush_submission(engine);
+ 
+-	rq = engine->heartbeat.systole;
+-	if (rq && i915_request_completed(rq)) {
+-		i915_request_put(rq);
+-		engine->heartbeat.systole = NULL;
++	rq = xchg(&engine->heartbeat.systole, NULL);
++	if (rq) {
++		if (i915_request_completed(rq))
++			i915_request_put(rq);
++		else
++			engine->heartbeat.systole = rq;
+ 	}
+ 
+ 	if (!intel_engine_pm_get_if_awake(engine))
+@@ -200,8 +202,11 @@ static void heartbeat(struct work_struct *wrk)
+ unlock:
+ 	mutex_unlock(&ce->timeline->mutex);
+ out:
+-	if (!engine->i915->params.enable_hangcheck || !next_heartbeat(engine))
+-		i915_request_put(fetch_and_zero(&engine->heartbeat.systole));
++	if (!engine->i915->params.enable_hangcheck || !next_heartbeat(engine)) {
++		rq = xchg(&engine->heartbeat.systole, NULL);
++		if (rq)
++			i915_request_put(rq);
++	}
+ 	intel_engine_pm_put(engine);
+ }
+ 
+@@ -215,8 +220,13 @@ void intel_engine_unpark_heartbeat(struct intel_engine_cs *engine)
+ 
+ void intel_engine_park_heartbeat(struct intel_engine_cs *engine)
+ {
+-	if (cancel_delayed_work(&engine->heartbeat.work))
+-		i915_request_put(fetch_and_zero(&engine->heartbeat.systole));
++	if (cancel_delayed_work(&engine->heartbeat.work)) {
++		struct i915_request *rq;
++
++		rq = xchg(&engine->heartbeat.systole, NULL);
++		if (rq)
++			i915_request_put(rq);
++	}
+ }
+ 
+ void intel_gt_unpark_heartbeats(struct intel_gt *gt)
+diff --git a/drivers/gpu/drm/scheduler/sched_entity.c b/drivers/gpu/drm/scheduler/sched_entity.c
+index 3f68a47e340627..3469ba0f990b21 100644
+--- a/drivers/gpu/drm/scheduler/sched_entity.c
++++ b/drivers/gpu/drm/scheduler/sched_entity.c
+@@ -196,6 +196,7 @@ static void drm_sched_entity_kill_jobs_work(struct work_struct *wrk)
+ {
+ 	struct drm_sched_job *job = container_of(wrk, typeof(*job), work);
+ 
++	drm_sched_fence_scheduled(job->s_fence);
+ 	drm_sched_fence_finished(job->s_fence);
+ 	WARN_ON(job->s_fence->parent);
+ 	job->sched->ops->free_job(job);
+diff --git a/drivers/input/misc/uinput.c b/drivers/input/misc/uinput.c
+index faed4590a8a921..449dbf90d2473a 100644
+--- a/drivers/input/misc/uinput.c
++++ b/drivers/input/misc/uinput.c
+@@ -25,8 +25,10 @@
+ #include <linux/module.h>
+ #include <linux/init.h>
+ #include <linux/fs.h>
++#include <linux/lockdep.h>
+ #include <linux/miscdevice.h>
+ #include <linux/overflow.h>
++#include <linux/spinlock.h>
+ #include <linux/input/mt.h>
+ #include "../input-compat.h"
+ 
+@@ -56,6 +58,7 @@ struct uinput_device {
+ 	struct input_dev	*dev;
+ 	struct mutex		mutex;
+ 	enum uinput_state	state;
++	spinlock_t		state_lock;
+ 	wait_queue_head_t	waitq;
+ 	unsigned char		ready;
+ 	unsigned char		head;
+@@ -74,6 +77,8 @@ static int uinput_dev_event(struct input_dev *dev,
+ 	struct uinput_device	*udev = input_get_drvdata(dev);
+ 	struct timespec64	ts;
+ 
++	lockdep_assert_held(&dev->event_lock);
++
+ 	ktime_get_ts64(&ts);
+ 
+ 	udev->buff[udev->head] = (struct input_event) {
+@@ -145,27 +150,26 @@ static void uinput_request_release_slot(struct uinput_device *udev,
+ static int uinput_request_send(struct uinput_device *udev,
+ 			       struct uinput_request *request)
+ {
+-	int retval;
++	unsigned long flags;
++	int retval = 0;
+ 
+-	retval = mutex_lock_interruptible(&udev->mutex);
+-	if (retval)
+-		return retval;
++	spin_lock(&udev->state_lock);
+ 
+ 	if (udev->state != UIST_CREATED) {
+ 		retval = -ENODEV;
+ 		goto out;
+ 	}
+ 
+-	init_completion(&request->done);
+-
+ 	/*
+ 	 * Tell our userspace application about this new request
+ 	 * by queueing an input event.
+ 	 */
++	spin_lock_irqsave(&udev->dev->event_lock, flags);
+ 	uinput_dev_event(udev->dev, EV_UINPUT, request->code, request->id);
++	spin_unlock_irqrestore(&udev->dev->event_lock, flags);
+ 
+  out:
+-	mutex_unlock(&udev->mutex);
++	spin_unlock(&udev->state_lock);
+ 	return retval;
+ }
+ 
+@@ -174,6 +178,13 @@ static int uinput_request_submit(struct uinput_device *udev,
+ {
+ 	int retval;
+ 
++	/*
++	 * Initialize completion before allocating the request slot.
++	 * Once the slot is allocated, uinput_flush_requests() may
++	 * complete it at any time, so it must be initialized first.
++	 */
++	init_completion(&request->done);
++
+ 	retval = uinput_request_reserve_slot(udev, request);
+ 	if (retval)
+ 		return retval;
+@@ -288,7 +299,14 @@ static void uinput_destroy_device(struct uinput_device *udev)
+ 	struct input_dev *dev = udev->dev;
+ 	enum uinput_state old_state = udev->state;
+ 
++	/*
++	 * Update state under state_lock so that concurrent
++	 * uinput_request_send() sees the state change before we
++	 * flush pending requests and tear down the device.
++	 */
++	spin_lock(&udev->state_lock);
+ 	udev->state = UIST_NEW_DEVICE;
++	spin_unlock(&udev->state_lock);
+ 
+ 	if (dev) {
+ 		name = dev->name;
+@@ -365,7 +383,9 @@ static int uinput_create_device(struct uinput_device *udev)
+ 	if (error)
+ 		goto fail2;
+ 
++	spin_lock(&udev->state_lock);
+ 	udev->state = UIST_CREATED;
++	spin_unlock(&udev->state_lock);
+ 
+ 	return 0;
+ 
+@@ -383,6 +403,7 @@ static int uinput_open(struct inode *inode, struct file *file)
+ 		return -ENOMEM;
+ 
+ 	mutex_init(&newdev->mutex);
++	spin_lock_init(&newdev->state_lock);
+ 	spin_lock_init(&newdev->requests_lock);
+ 	init_waitqueue_head(&newdev->requests_waitq);
+ 	init_waitqueue_head(&newdev->waitq);
+diff --git a/drivers/media/usb/uvc/uvc_driver.c b/drivers/media/usb/uvc/uvc_driver.c
+index ff5ca3163c3e11..a1c6ae97a2b930 100644
+--- a/drivers/media/usb/uvc/uvc_driver.c
++++ b/drivers/media/usb/uvc/uvc_driver.c
+@@ -134,6 +134,9 @@ struct uvc_entity *uvc_entity_by_id(struct uvc_device *dev, int id)
+ {
+ 	struct uvc_entity *entity;
+ 
++	if (id == UVC_INVALID_ENTITY_ID)
++		return NULL;
++
+ 	list_for_each_entry(entity, &dev->entities, list) {
+ 		if (entity->id == id)
+ 			return entity;
+@@ -161,13 +164,26 @@ static struct uvc_entity *uvc_entity_by_reference(struct uvc_device *dev,
+ 
+ static struct uvc_streaming *uvc_stream_by_id(struct uvc_device *dev, int id)
+ {
+-	struct uvc_streaming *stream;
++	struct uvc_streaming *stream, *last_stream;
++	unsigned int count = 0;
+ 
+ 	list_for_each_entry(stream, &dev->streams, list) {
++		count += 1;
++		last_stream = stream;
+ 		if (stream->header.bTerminalLink == id)
+ 			return stream;
+ 	}
+ 
++	/*
++	 * If the streaming entity is referenced by an invalid ID, notify the
++	 * user and use heuristics to guess the correct entity.
++	 */
++	if (count == 1 && id == UVC_INVALID_ENTITY_ID) {
++		dev_warn(&dev->intf->dev,
++			 "UVC non compliance: Invalid USB header. The streaming entity has an invalid ID, guessing the correct one.");
++		return last_stream;
++	}
++
+ 	return NULL;
+ }
+ 
+@@ -757,14 +773,27 @@ static const u8 uvc_media_transport_input_guid[16] =
+ 	UVC_GUID_UVC_MEDIA_TRANSPORT_INPUT;
+ static const u8 uvc_processing_guid[16] = UVC_GUID_UVC_PROCESSING;
+ 
+-static struct uvc_entity *uvc_alloc_entity(u16 type, u16 id,
+-		unsigned int num_pads, unsigned int extra_size)
++static struct uvc_entity *uvc_alloc_new_entity(struct uvc_device *dev, u16 type,
++					       u16 id, unsigned int num_pads,
++					       unsigned int extra_size)
+ {
+ 	struct uvc_entity *entity;
+ 	unsigned int num_inputs;
+ 	unsigned int size;
+ 	unsigned int i;
+ 
++	/* Per UVC 1.1+ spec 3.7.2, the ID should be non-zero. */
++	if (id == 0) {
++		dev_err(&dev->intf->dev, "Found Unit with invalid ID 0\n");
++		id = UVC_INVALID_ENTITY_ID;
++	}
++
++	/* Per UVC 1.1+ spec 3.7.2, the ID is unique. */
++	if (uvc_entity_by_id(dev, id)) {
++		dev_err(&dev->intf->dev, "Found multiple Units with ID %u\n", id);
++		id = UVC_INVALID_ENTITY_ID;
++	}
++
+ 	extra_size = roundup(extra_size, sizeof(*entity->pads));
+ 	if (num_pads)
+ 		num_inputs = type & UVC_TERM_OUTPUT ? num_pads : num_pads - 1;
+@@ -774,7 +803,7 @@ static struct uvc_entity *uvc_alloc_entity(u16 type, u16 id,
+ 	     + num_inputs;
+ 	entity = kzalloc(size, GFP_KERNEL);
+ 	if (entity == NULL)
+-		return NULL;
++		return ERR_PTR(-ENOMEM);
+ 
+ 	entity->id = id;
+ 	entity->type = type;
+@@ -865,10 +894,10 @@ static int uvc_parse_vendor_control(struct uvc_device *dev,
+ 			break;
+ 		}
+ 
+-		unit = uvc_alloc_entity(UVC_VC_EXTENSION_UNIT, buffer[3],
+-					p + 1, 2*n);
+-		if (unit == NULL)
+-			return -ENOMEM;
++		unit = uvc_alloc_new_entity(dev, UVC_VC_EXTENSION_UNIT,
++					    buffer[3], p + 1, 2 * n);
++		if (IS_ERR(unit))
++			return PTR_ERR(unit);
+ 
+ 		memcpy(unit->guid, &buffer[4], 16);
+ 		unit->extension.bNumControls = buffer[20];
+@@ -978,10 +1007,10 @@ static int uvc_parse_standard_control(struct uvc_device *dev,
+ 			return -EINVAL;
+ 		}
+ 
+-		term = uvc_alloc_entity(type | UVC_TERM_INPUT, buffer[3],
+-					1, n + p);
+-		if (term == NULL)
+-			return -ENOMEM;
++		term = uvc_alloc_new_entity(dev, type | UVC_TERM_INPUT,
++					    buffer[3], 1, n + p);
++		if (IS_ERR(term))
++			return PTR_ERR(term);
+ 
+ 		if (UVC_ENTITY_TYPE(term) == UVC_ITT_CAMERA) {
+ 			term->camera.bControlSize = n;
+@@ -1038,10 +1067,10 @@ static int uvc_parse_standard_control(struct uvc_device *dev,
+ 			return 0;
+ 		}
+ 
+-		term = uvc_alloc_entity(type | UVC_TERM_OUTPUT, buffer[3],
+-					1, 0);
+-		if (term == NULL)
+-			return -ENOMEM;
++		term = uvc_alloc_new_entity(dev, type | UVC_TERM_OUTPUT,
++					    buffer[3], 1, 0);
++		if (IS_ERR(term))
++			return PTR_ERR(term);
+ 
+ 		memcpy(term->baSourceID, &buffer[7], 1);
+ 
+@@ -1062,9 +1091,10 @@ static int uvc_parse_standard_control(struct uvc_device *dev,
+ 			return -EINVAL;
+ 		}
+ 
+-		unit = uvc_alloc_entity(buffer[2], buffer[3], p + 1, 0);
+-		if (unit == NULL)
+-			return -ENOMEM;
++		unit = uvc_alloc_new_entity(dev, buffer[2], buffer[3],
++					    p + 1, 0);
++		if (IS_ERR(unit))
++			return PTR_ERR(unit);
+ 
+ 		memcpy(unit->baSourceID, &buffer[5], p);
+ 
+@@ -1086,9 +1116,9 @@ static int uvc_parse_standard_control(struct uvc_device *dev,
+ 			return -EINVAL;
+ 		}
+ 
+-		unit = uvc_alloc_entity(buffer[2], buffer[3], 2, n);
+-		if (unit == NULL)
+-			return -ENOMEM;
++		unit = uvc_alloc_new_entity(dev, buffer[2], buffer[3], 2, n);
++		if (IS_ERR(unit))
++			return PTR_ERR(unit);
+ 
+ 		memcpy(unit->baSourceID, &buffer[4], 1);
+ 		unit->processing.wMaxMultiplier =
+@@ -1117,9 +1147,10 @@ static int uvc_parse_standard_control(struct uvc_device *dev,
+ 			return -EINVAL;
+ 		}
+ 
+-		unit = uvc_alloc_entity(buffer[2], buffer[3], p + 1, n);
+-		if (unit == NULL)
+-			return -ENOMEM;
++		unit = uvc_alloc_new_entity(dev, buffer[2], buffer[3],
++					    p + 1, n);
++		if (IS_ERR(unit))
++			return PTR_ERR(unit);
+ 
+ 		memcpy(unit->guid, &buffer[4], 16);
+ 		unit->extension.bNumControls = buffer[20];
+@@ -1260,9 +1291,10 @@ static int uvc_gpio_parse(struct uvc_device *dev)
+ 		return dev_err_probe(&dev->intf->dev, irq,
+ 				     "No IRQ for privacy GPIO\n");
+ 
+-	unit = uvc_alloc_entity(UVC_EXT_GPIO_UNIT, UVC_EXT_GPIO_UNIT_ID, 0, 1);
+-	if (!unit)
+-		return -ENOMEM;
++	unit = uvc_alloc_new_entity(dev, UVC_EXT_GPIO_UNIT,
++				    UVC_EXT_GPIO_UNIT_ID, 0, 1);
++	if (IS_ERR(unit))
++		return PTR_ERR(unit);
+ 
+ 	unit->gpio.gpio_privacy = gpio_privacy;
+ 	unit->gpio.irq = irq;
+diff --git a/drivers/media/usb/uvc/uvcvideo.h b/drivers/media/usb/uvc/uvcvideo.h
+index 45caa8523426d0..a7182305390b44 100644
+--- a/drivers/media/usb/uvc/uvcvideo.h
++++ b/drivers/media/usb/uvc/uvcvideo.h
+@@ -41,6 +41,8 @@
+ #define UVC_EXT_GPIO_UNIT		0x7ffe
+ #define UVC_EXT_GPIO_UNIT_ID		0x100
+ 
++#define UVC_INVALID_ENTITY_ID          0xffff
++
+ /* ------------------------------------------------------------------------
+  * Driver specific constants.
+  */
+diff --git a/drivers/mmc/host/vub300.c b/drivers/mmc/host/vub300.c
+index 05ffd5bf5a6f06..90c31803066d18 100644
+--- a/drivers/mmc/host/vub300.c
++++ b/drivers/mmc/host/vub300.c
+@@ -2371,8 +2371,8 @@ static void vub300_disconnect(struct usb_interface *interface)
+ 			usb_set_intfdata(interface, NULL);
+ 			/* prevent more I/O from starting */
+ 			vub300->interface = NULL;
+-			kref_put(&vub300->kref, vub300_delete);
+ 			mmc_remove_host(mmc);
++			kref_put(&vub300->kref, vub300_delete);
+ 			pr_info("USB vub300 remote SDIO host controller[%d]"
+ 				" now disconnected", ifnum);
+ 			return;
+diff --git a/drivers/net/ethernet/altera/altera_tse_main.c b/drivers/net/ethernet/altera/altera_tse_main.c
+index 711d5b5a4c49cf..973557bc711778 100644
+--- a/drivers/net/ethernet/altera/altera_tse_main.c
++++ b/drivers/net/ethernet/altera/altera_tse_main.c
+@@ -572,6 +572,7 @@ static netdev_tx_t tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ 				  DMA_TO_DEVICE);
+ 	if (dma_mapping_error(priv->device, dma_addr)) {
+ 		netdev_err(priv->dev, "%s: DMA mapping error\n", __func__);
++		dev_kfree_skb_any(skb);
+ 		ret = NETDEV_TX_OK;
+ 		goto out;
+ 	}
+diff --git a/drivers/net/ethernet/mellanox/mlx5/core/main.c b/drivers/net/ethernet/mellanox/mlx5/core/main.c
+index 2b89bbd95f9af9..72af9827157d8e 100644
+--- a/drivers/net/ethernet/mellanox/mlx5/core/main.c
++++ b/drivers/net/ethernet/mellanox/mlx5/core/main.c
+@@ -2043,6 +2043,7 @@ static const struct pci_device_id mlx5_core_pci_table[] = {
+ 	{ PCI_VDEVICE(MELLANOX, 0x1023) },			/* ConnectX-8 */
+ 	{ PCI_VDEVICE(MELLANOX, 0x1025) },			/* ConnectX-9 */
+ 	{ PCI_VDEVICE(MELLANOX, 0x1027) },			/* ConnectX-10 */
++	{ PCI_VDEVICE(MELLANOX, 0x2101) },			/* ConnectX-10 NVLink-C2C */
+ 	{ PCI_VDEVICE(MELLANOX, 0xa2d2) },			/* BlueField integrated ConnectX-5 network controller */
+ 	{ PCI_VDEVICE(MELLANOX, 0xa2d3), MLX5_PCI_DEV_IS_VF},	/* BlueField integrated ConnectX-5 network controller VF */
+ 	{ PCI_VDEVICE(MELLANOX, 0xa2d6) },			/* BlueField-2 integrated ConnectX-6 Dx network controller */
+diff --git a/drivers/net/ethernet/qualcomm/qca_uart.c b/drivers/net/ethernet/qualcomm/qca_uart.c
+index 26646cb6a20a62..86330f796e0851 100644
+--- a/drivers/net/ethernet/qualcomm/qca_uart.c
++++ b/drivers/net/ethernet/qualcomm/qca_uart.c
+@@ -115,7 +115,7 @@ qca_tty_receive(struct serdev_device *serdev, const unsigned char *data,
+ 			if (!qca->rx_skb) {
+ 				netdev_dbg(netdev, "recv: out of RX resources\n");
+ 				n_stats->rx_errors++;
+-				return i;
++				return i + 1;
+ 			}
+ 		}
+ 	}
+diff --git a/drivers/net/ethernet/stmicro/stmmac/chain_mode.c b/drivers/net/ethernet/stmicro/stmmac/chain_mode.c
+index fb55efd52240d0..1c01e3c640ceeb 100644
+--- a/drivers/net/ethernet/stmicro/stmmac/chain_mode.c
++++ b/drivers/net/ethernet/stmicro/stmmac/chain_mode.c
+@@ -20,7 +20,7 @@ static int jumbo_frm(struct stmmac_tx_queue *tx_q, struct sk_buff *skb,
+ 	unsigned int nopaged_len = skb_headlen(skb);
+ 	struct stmmac_priv *priv = tx_q->priv_data;
+ 	unsigned int entry = tx_q->cur_tx;
+-	unsigned int bmax, des2;
++	unsigned int bmax, buf_len, des2;
+ 	unsigned int i = 1, len;
+ 	struct dma_desc *desc;
+ 
+@@ -31,17 +31,18 @@ static int jumbo_frm(struct stmmac_tx_queue *tx_q, struct sk_buff *skb,
+ 	else
+ 		bmax = BUF_SIZE_2KiB;
+ 
+-	len = nopaged_len - bmax;
++	buf_len = min_t(unsigned int, nopaged_len, bmax);
++	len = nopaged_len - buf_len;
+ 
+ 	des2 = dma_map_single(priv->device, skb->data,
+-			      bmax, DMA_TO_DEVICE);
++			      buf_len, DMA_TO_DEVICE);
+ 	desc->des2 = cpu_to_le32(des2);
+ 	if (dma_mapping_error(priv->device, des2))
+ 		return -1;
+ 	tx_q->tx_skbuff_dma[entry].buf = des2;
+-	tx_q->tx_skbuff_dma[entry].len = bmax;
++	tx_q->tx_skbuff_dma[entry].len = buf_len;
+ 	/* do not close the descriptor and do not set own bit */
+-	stmmac_prepare_tx_desc(priv, desc, 1, bmax, csum, STMMAC_CHAIN_MODE,
++	stmmac_prepare_tx_desc(priv, desc, 1, buf_len, csum, STMMAC_CHAIN_MODE,
+ 			0, false, skb->len);
+ 
+ 	while (len != 0) {
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmsmac/dma.c b/drivers/net/wireless/broadcom/brcm80211/brcmsmac/dma.c
+index b7df576bb84d9b..2c0ea993d71f91 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmsmac/dma.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmsmac/dma.c
+@@ -483,7 +483,7 @@ static void *dma_ringalloc(struct dma_info *di, u32 boundary, uint size,
+ 	if (((desc_strtaddr + size - 1) & boundary) != (desc_strtaddr
+ 							& boundary)) {
+ 		*alignbits = dma_align_sizetobits(size);
+-		dma_free_coherent(di->dmadev, size, va, *descpa);
++		dma_free_coherent(di->dmadev, *alloced, va, *descpa);
+ 		va = dma_alloc_consistent(di, size, *alignbits,
+ 			alloced, descpa);
+ 	}
+diff --git a/drivers/net/wireless/ralink/rt2x00/rt2x00usb.c b/drivers/net/wireless/ralink/rt2x00/rt2x00usb.c
+index 8fd22c69855fa4..9b193e46788638 100644
+--- a/drivers/net/wireless/ralink/rt2x00/rt2x00usb.c
++++ b/drivers/net/wireless/ralink/rt2x00/rt2x00usb.c
+@@ -830,7 +830,7 @@ int rt2x00usb_probe(struct usb_interface *usb_intf,
+ 	if (retval)
+ 		goto exit_free_device;
+ 
+-	rt2x00dev->anchor = devm_kmalloc(&usb_dev->dev,
++	rt2x00dev->anchor = devm_kmalloc(&usb_intf->dev,
+ 					sizeof(struct usb_anchor),
+ 					GFP_KERNEL);
+ 	if (!rt2x00dev->anchor) {
+diff --git a/drivers/nfc/pn533/uart.c b/drivers/nfc/pn533/uart.c
+index 026d5ef825b595..b024ee53b7b807 100644
+--- a/drivers/nfc/pn533/uart.c
++++ b/drivers/nfc/pn533/uart.c
+@@ -211,6 +211,13 @@ static int pn532_receive_buf(struct serdev_device *serdev,
+ 
+ 	del_timer(&dev->cmd_timeout);
+ 	for (i = 0; i < count; i++) {
++		if (!dev->recv_skb) {
++			dev->recv_skb = alloc_skb(PN532_UART_SKB_BUFF_LEN,
++						  GFP_KERNEL);
++			if (!dev->recv_skb)
++				return i;
++		}
++
+ 		if (unlikely(!skb_tailroom(dev->recv_skb)))
+ 			skb_trim(dev->recv_skb, 0);
+ 
+@@ -219,9 +226,7 @@ static int pn532_receive_buf(struct serdev_device *serdev,
+ 			continue;
+ 
+ 		pn533_recv_frame(dev->priv, dev->recv_skb, 0);
+-		dev->recv_skb = alloc_skb(PN532_UART_SKB_BUFF_LEN, GFP_KERNEL);
+-		if (!dev->recv_skb)
+-			return 0;
++		dev->recv_skb = NULL;
+ 	}
+ 
+ 	return i;
+diff --git a/drivers/pci/pci-driver.c b/drivers/pci/pci-driver.c
+index 8b5796a6ed5ff6..fe6e5f716543af 100644
+--- a/drivers/pci/pci-driver.c
++++ b/drivers/pci/pci-driver.c
+@@ -1667,14 +1667,6 @@ static int pci_dma_configure(struct device *dev)
+ 		ret = acpi_dma_configure(dev, acpi_get_dma_attr(adev));
+ 	}
+ 
+-	/*
+-	 * Attempt to enable ACS regardless of capability because some Root
+-	 * Ports (e.g. those quirked with *_intel_pch_acs_*) do not have
+-	 * the standard ACS capability but still support ACS via those
+-	 * quirks.
+-	 */
+-	pci_enable_acs(to_pci_dev(dev));
+-
+ 	pci_put_host_bridge_device(bridge);
+ 
+ 	if (!ret && !driver->driver_managed_dma) {
+diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
+index d2d6b7da8c66cc..0778bb09d87848 100644
+--- a/drivers/pci/pci.c
++++ b/drivers/pci/pci.c
+@@ -1040,7 +1040,7 @@ static void pci_std_enable_acs(struct pci_dev *dev)
+  * pci_enable_acs - enable ACS if hardware support it
+  * @dev: the PCI device
+  */
+-void pci_enable_acs(struct pci_dev *dev)
++static void pci_enable_acs(struct pci_dev *dev)
+ {
+ 	if (!pci_acs_enable)
+ 		goto disable_acs_redir;
+@@ -3777,6 +3777,14 @@ bool pci_acs_path_enabled(struct pci_dev *start,
+ void pci_acs_init(struct pci_dev *dev)
+ {
+ 	dev->acs_cap = pci_find_ext_capability(dev, PCI_EXT_CAP_ID_ACS);
++
++	/*
++	 * Attempt to enable ACS regardless of capability because some Root
++	 * Ports (e.g. those quirked with *_intel_pch_acs_*) do not have
++	 * the standard ACS capability but still support ACS via those
++	 * quirks.
++	 */
++	pci_enable_acs(dev);
+ }
+ 
+ /**
+diff --git a/drivers/pci/pci.h b/drivers/pci/pci.h
+index 0debf921a9feb3..85488bc8e7795f 100644
+--- a/drivers/pci/pci.h
++++ b/drivers/pci/pci.h
+@@ -526,7 +526,6 @@ static inline resource_size_t pci_resource_alignment(struct pci_dev *dev,
+ }
+ 
+ void pci_acs_init(struct pci_dev *dev);
+-void pci_enable_acs(struct pci_dev *dev);
+ #ifdef CONFIG_PCI_QUIRKS
+ int pci_dev_specific_acs_enabled(struct pci_dev *dev, u16 acs_flags);
+ int pci_dev_specific_enable_acs(struct pci_dev *dev);
+diff --git a/drivers/usb/gadget/function/f_hid.c b/drivers/usb/gadget/function/f_hid.c
+index c20d3426571ec5..de00785fa183df 100644
+--- a/drivers/usb/gadget/function/f_hid.c
++++ b/drivers/usb/gadget/function/f_hid.c
+@@ -996,13 +996,8 @@ static int hidg_bind(struct usb_configuration *c, struct usb_function *f)
+ 	if (status)
+ 		goto fail;
+ 
+-	spin_lock_init(&hidg->write_spinlock);
+ 	hidg->write_pending = 1;
+ 	hidg->req = NULL;
+-	spin_lock_init(&hidg->read_spinlock);
+-	init_waitqueue_head(&hidg->write_queue);
+-	init_waitqueue_head(&hidg->read_queue);
+-	INIT_LIST_HEAD(&hidg->completed_out_req);
+ 
+ 	/* create char device */
+ 	cdev_init(&hidg->cdev, &f_hidg_fops);
+@@ -1272,6 +1267,12 @@ static struct usb_function *hidg_alloc(struct usb_function_instance *fi)
+ 	mutex_lock(&opts->lock);
+ 	++opts->refcnt;
+ 
++	spin_lock_init(&hidg->write_spinlock);
++	spin_lock_init(&hidg->read_spinlock);
++	init_waitqueue_head(&hidg->write_queue);
++	init_waitqueue_head(&hidg->read_queue);
++	INIT_LIST_HEAD(&hidg->completed_out_req);
++
+ 	device_initialize(&hidg->dev);
+ 	hidg->dev.release = hidg_release;
+ 	hidg->dev.class = hidg_class;
+diff --git a/drivers/usb/gadget/function/u_ether.c b/drivers/usb/gadget/function/u_ether.c
+index 1f420ff8f4232d..e84178bffe7803 100644
+--- a/drivers/usb/gadget/function/u_ether.c
++++ b/drivers/usb/gadget/function/u_ether.c
+@@ -1175,6 +1175,10 @@ void gether_disconnect(struct gether *link)
+ 
+ 	DBG(dev, "%s\n", __func__);
+ 
++	spin_lock(&dev->lock);
++	dev->port_usb = NULL;
++	spin_unlock(&dev->lock);
++
+ 	netif_stop_queue(dev->net);
+ 	netif_carrier_off(dev->net);
+ 
+@@ -1212,10 +1216,6 @@ void gether_disconnect(struct gether *link)
+ 	dev->header_len = 0;
+ 	dev->unwrap = NULL;
+ 	dev->wrap = NULL;
+-
+-	spin_lock(&dev->lock);
+-	dev->port_usb = NULL;
+-	spin_unlock(&dev->lock);
+ }
+ EXPORT_SYMBOL_GPL(gether_disconnect);
+ 
+diff --git a/include/acpi/acpixf.h b/include/acpi/acpixf.h
+index 42fba1d0d63358..fb821b5e88e61d 100644
+--- a/include/acpi/acpixf.h
++++ b/include/acpi/acpixf.h
+@@ -666,12 +666,9 @@ ACPI_EXTERNAL_RETURN_STATUS(acpi_status
+ 			     void *context))
+ ACPI_EXTERNAL_RETURN_STATUS(acpi_status
+ 			    acpi_execute_reg_methods(acpi_handle device,
++						     u32 nax_depth,
+ 						     acpi_adr_space_type
+ 						     space_id))
+-ACPI_EXTERNAL_RETURN_STATUS(acpi_status
+-			    acpi_execute_orphan_reg_method(acpi_handle device,
+-							   acpi_adr_space_type
+-							   space_id))
+ ACPI_EXTERNAL_RETURN_STATUS(acpi_status
+ 			    acpi_remove_address_space_handler(acpi_handle
+ 							      device,
+diff --git a/include/net/netfilter/nf_conntrack_timeout.h b/include/net/netfilter/nf_conntrack_timeout.h
+index 9fdaba911de64d..3a66d4abb6d688 100644
+--- a/include/net/netfilter/nf_conntrack_timeout.h
++++ b/include/net/netfilter/nf_conntrack_timeout.h
+@@ -14,6 +14,7 @@
+ struct nf_ct_timeout {
+ 	__u16			l3num;
+ 	const struct nf_conntrack_l4proto *l4proto;
++	struct rcu_head		rcu;
+ 	char			data[];
+ };
+ 
+diff --git a/lib/crypto/chacha.c b/lib/crypto/chacha.c
+index b748fd3d256e41..1bff9f2837778f 100644
+--- a/lib/crypto/chacha.c
++++ b/lib/crypto/chacha.c
+@@ -86,6 +86,8 @@ void chacha_block_generic(u32 *state, u8 *stream, int nrounds)
+ 		put_unaligned_le32(x[i] + state[i], &stream[i * sizeof(u32)]);
+ 
+ 	state[12]++;
++
++	memzero_explicit(x, sizeof(x));
+ }
+ EXPORT_SYMBOL(chacha_block_generic);
+ 
+@@ -110,5 +112,7 @@ void hchacha_block_generic(const u32 *state, u32 *stream, int nrounds)
+ 
+ 	memcpy(&stream[0], &x[0], 16);
+ 	memcpy(&stream[4], &x[12], 16);
++
++	memzero_explicit(x, sizeof(x));
+ }
+ EXPORT_SYMBOL(hchacha_block_generic);
+diff --git a/net/batman-adv/bridge_loop_avoidance.c b/net/batman-adv/bridge_loop_avoidance.c
+index 37ce6cfb352097..96b3c1c972cd27 100644
+--- a/net/batman-adv/bridge_loop_avoidance.c
++++ b/net/batman-adv/bridge_loop_avoidance.c
+@@ -2132,6 +2132,7 @@ batadv_bla_claim_dump_entry(struct sk_buff *msg, u32 portid,
+ 			    struct batadv_bla_claim *claim)
+ {
+ 	const u8 *primary_addr = primary_if->net_dev->dev_addr;
++	struct batadv_bla_backbone_gw *backbone_gw;
+ 	u16 backbone_crc;
+ 	bool is_own;
+ 	void *hdr;
+@@ -2147,32 +2148,35 @@ batadv_bla_claim_dump_entry(struct sk_buff *msg, u32 portid,
+ 
+ 	genl_dump_check_consistent(cb, hdr);
+ 
+-	is_own = batadv_compare_eth(claim->backbone_gw->orig,
+-				    primary_addr);
++	backbone_gw = batadv_bla_claim_get_backbone_gw(claim);
++
++	is_own = batadv_compare_eth(backbone_gw->orig, primary_addr);
+ 
+-	spin_lock_bh(&claim->backbone_gw->crc_lock);
+-	backbone_crc = claim->backbone_gw->crc;
+-	spin_unlock_bh(&claim->backbone_gw->crc_lock);
++	spin_lock_bh(&backbone_gw->crc_lock);
++	backbone_crc = backbone_gw->crc;
++	spin_unlock_bh(&backbone_gw->crc_lock);
+ 
+ 	if (is_own)
+ 		if (nla_put_flag(msg, BATADV_ATTR_BLA_OWN)) {
+ 			genlmsg_cancel(msg, hdr);
+-			goto out;
++			goto put_backbone_gw;
+ 		}
+ 
+ 	if (nla_put(msg, BATADV_ATTR_BLA_ADDRESS, ETH_ALEN, claim->addr) ||
+ 	    nla_put_u16(msg, BATADV_ATTR_BLA_VID, claim->vid) ||
+ 	    nla_put(msg, BATADV_ATTR_BLA_BACKBONE, ETH_ALEN,
+-		    claim->backbone_gw->orig) ||
++		    backbone_gw->orig) ||
+ 	    nla_put_u16(msg, BATADV_ATTR_BLA_CRC,
+ 			backbone_crc)) {
+ 		genlmsg_cancel(msg, hdr);
+-		goto out;
++		goto put_backbone_gw;
+ 	}
+ 
+ 	genlmsg_end(msg, hdr);
+ 	ret = 0;
+ 
++put_backbone_gw:
++	batadv_backbone_gw_put(backbone_gw);
+ out:
+ 	return ret;
+ }
+@@ -2468,6 +2472,7 @@ out:
+ bool batadv_bla_check_claim(struct batadv_priv *bat_priv,
+ 			    u8 *addr, unsigned short vid)
+ {
++	struct batadv_bla_backbone_gw *backbone_gw;
+ 	struct batadv_bla_claim search_claim;
+ 	struct batadv_bla_claim *claim = NULL;
+ 	struct batadv_hard_iface *primary_if = NULL;
+@@ -2490,9 +2495,13 @@ bool batadv_bla_check_claim(struct batadv_priv *bat_priv,
+ 	 * return false.
+ 	 */
+ 	if (claim) {
+-		if (!batadv_compare_eth(claim->backbone_gw->orig,
++		backbone_gw = batadv_bla_claim_get_backbone_gw(claim);
++
++		if (!batadv_compare_eth(backbone_gw->orig,
+ 					primary_if->net_dev->dev_addr))
+ 			ret = false;
++
++		batadv_backbone_gw_put(backbone_gw);
+ 		batadv_claim_put(claim);
+ 	}
+ 
+diff --git a/net/batman-adv/translation-table.c b/net/batman-adv/translation-table.c
+index 2b5453801bf0da..f1e93a60482038 100644
+--- a/net/batman-adv/translation-table.c
++++ b/net/batman-adv/translation-table.c
+@@ -844,8 +844,8 @@ batadv_tt_prepare_tvlv_global_data(struct batadv_orig_node *orig_node,
+ {
+ 	u16 num_vlan = 0;
+ 	u16 num_entries = 0;
+-	u16 change_offset;
+-	u16 tvlv_len;
++	u16 tvlv_len = 0;
++	unsigned int change_offset;
+ 	struct batadv_tvlv_tt_vlan_data *tt_vlan;
+ 	struct batadv_orig_node_vlan *vlan;
+ 	u8 *tt_change_ptr;
+@@ -863,6 +863,11 @@ batadv_tt_prepare_tvlv_global_data(struct batadv_orig_node *orig_node,
+ 	if (*tt_len < 0)
+ 		*tt_len = batadv_tt_len(num_entries);
+ 
++	if (change_offset > U16_MAX || *tt_len > U16_MAX - change_offset) {
++		*tt_len = 0;
++		goto out;
++	}
++
+ 	tvlv_len = *tt_len;
+ 	tvlv_len += change_offset;
+ 
+diff --git a/net/ipv6/seg6_iptunnel.c b/net/ipv6/seg6_iptunnel.c
+index b186d85ec5b3f4..264a14aef45238 100644
+--- a/net/ipv6/seg6_iptunnel.c
++++ b/net/ipv6/seg6_iptunnel.c
+@@ -48,7 +48,8 @@ static size_t seg6_lwt_headroom(struct seg6_iptunnel_encap *tuninfo)
+ }
+ 
+ struct seg6_lwt {
+-	struct dst_cache cache;
++	struct dst_cache cache_input;
++	struct dst_cache cache_output;
+ 	struct seg6_iptunnel_encap tuninfo[];
+ };
+ 
+@@ -486,7 +487,7 @@ static int seg6_input_core(struct net *net, struct sock *sk,
+ 	slwt = seg6_lwt_lwtunnel(lwtst);
+ 
+ 	local_bh_disable();
+-	dst = dst_cache_get(&slwt->cache);
++	dst = dst_cache_get(&slwt->cache_input);
+ 	local_bh_enable();
+ 
+ 	err = seg6_do_srh(skb, dst);
+@@ -502,7 +503,7 @@ static int seg6_input_core(struct net *net, struct sock *sk,
+ 		/* cache only if we don't create a dst reference loop */
+ 		if (!dst->error && lwtst != dst->lwtstate) {
+ 			local_bh_disable();
+-			dst_cache_set_ip6(&slwt->cache, dst,
++			dst_cache_set_ip6(&slwt->cache_input, dst,
+ 					  &ipv6_hdr(skb)->saddr);
+ 			local_bh_enable();
+ 		}
+@@ -561,7 +562,7 @@ static int seg6_output_core(struct net *net, struct sock *sk,
+ 	slwt = seg6_lwt_lwtunnel(orig_dst->lwtstate);
+ 
+ 	local_bh_disable();
+-	dst = dst_cache_get(&slwt->cache);
++	dst = dst_cache_get(&slwt->cache_output);
+ 	local_bh_enable();
+ 
+ 	err = seg6_do_srh(skb, dst);
+@@ -586,9 +587,12 @@ static int seg6_output_core(struct net *net, struct sock *sk,
+ 			goto drop;
+ 		}
+ 
+-		local_bh_disable();
+-		dst_cache_set_ip6(&slwt->cache, dst, &fl6.saddr);
+-		local_bh_enable();
++		/* cache only if we don't create a dst reference loop */
++		if (orig_dst->lwtstate != dst->lwtstate) {
++			local_bh_disable();
++			dst_cache_set_ip6(&slwt->cache_output, dst, &fl6.saddr);
++			local_bh_enable();
++		}
+ 
+ 		err = skb_cow_head(skb, LL_RESERVED_SPACE(dst->dev));
+ 		if (unlikely(err))
+@@ -695,11 +699,13 @@ static int seg6_build_state(struct net *net, struct nlattr *nla,
+ 
+ 	slwt = seg6_lwt_lwtunnel(newts);
+ 
+-	err = dst_cache_init(&slwt->cache, GFP_ATOMIC);
+-	if (err) {
+-		kfree(newts);
+-		return err;
+-	}
++	err = dst_cache_init(&slwt->cache_input, GFP_ATOMIC);
++	if (err)
++		goto err_free_newts;
++
++	err = dst_cache_init(&slwt->cache_output, GFP_ATOMIC);
++	if (err)
++		goto err_destroy_input;
+ 
+ 	memcpy(&slwt->tuninfo, tuninfo, tuninfo_len);
+ 
+@@ -714,11 +720,20 @@ static int seg6_build_state(struct net *net, struct nlattr *nla,
+ 	*ts = newts;
+ 
+ 	return 0;
++
++err_destroy_input:
++	dst_cache_destroy(&slwt->cache_input);
++err_free_newts:
++	kfree(newts);
++	return err;
+ }
+ 
+ static void seg6_destroy_state(struct lwtunnel_state *lwt)
+ {
+-	dst_cache_destroy(&seg6_lwt_lwtunnel(lwt)->cache);
++	struct seg6_lwt *slwt = seg6_lwt_lwtunnel(lwt);
++
++	dst_cache_destroy(&slwt->cache_input);
++	dst_cache_destroy(&slwt->cache_output);
+ }
+ 
+ static int seg6_fill_encap_info(struct sk_buff *skb,
+diff --git a/net/mptcp/pm_netlink.c b/net/mptcp/pm_netlink.c
+index 92ca81a5df6754..a16a7a538c4255 100644
+--- a/net/mptcp/pm_netlink.c
++++ b/net/mptcp/pm_netlink.c
+@@ -1080,7 +1080,7 @@ static void __mptcp_pm_release_addr_entry(struct mptcp_pm_addr_entry *entry)
+ 
+ static int mptcp_pm_nl_append_new_local_addr(struct pm_nl_pernet *pernet,
+ 					     struct mptcp_pm_addr_entry *entry,
+-					     bool needs_id, bool replace)
++					     bool replace)
+ {
+ 	struct mptcp_pm_addr_entry *cur, *del_entry = NULL;
+ 	unsigned int addr_max;
+@@ -1133,7 +1133,7 @@ static int mptcp_pm_nl_append_new_local_addr(struct pm_nl_pernet *pernet,
+ 		}
+ 	}
+ 
+-	if (!entry->addr.id && needs_id) {
++	if (!entry->addr.id) {
+ find_next:
+ 		entry->addr.id = find_next_zero_bit(pernet->id_bitmap,
+ 						    MPTCP_PM_MAX_ADDR_ID + 1,
+@@ -1144,7 +1144,7 @@ find_next:
+ 		}
+ 	}
+ 
+-	if (!entry->addr.id && needs_id)
++	if (!entry->addr.id)
+ 		goto out;
+ 
+ 	__set_bit(entry->addr.id, pernet->id_bitmap);
+@@ -1271,7 +1271,7 @@ int mptcp_pm_nl_get_local_id(struct mptcp_sock *msk, struct mptcp_addr_info *skc
+ 	entry->ifindex = 0;
+ 	entry->flags = MPTCP_PM_ADDR_FLAG_IMPLICIT;
+ 	entry->lsk = NULL;
+-	ret = mptcp_pm_nl_append_new_local_addr(pernet, entry, true, false);
++	ret = mptcp_pm_nl_append_new_local_addr(pernet, entry, false);
+ 	if (ret < 0)
+ 		kfree(entry);
+ 
+@@ -1513,18 +1513,6 @@ next:
+ 	return 0;
+ }
+ 
+-static bool mptcp_pm_has_addr_attr_id(const struct nlattr *attr,
+-				      struct genl_info *info)
+-{
+-	struct nlattr *tb[MPTCP_PM_ADDR_ATTR_MAX + 1];
+-
+-	if (!nla_parse_nested_deprecated(tb, MPTCP_PM_ADDR_ATTR_MAX, attr,
+-					 mptcp_pm_addr_policy, info->extack) &&
+-	    tb[MPTCP_PM_ADDR_ATTR_ID])
+-		return true;
+-	return false;
+-}
+-
+ static int mptcp_nl_cmd_add_addr(struct sk_buff *skb, struct genl_info *info)
+ {
+ 	struct nlattr *attr = info->attrs[MPTCP_PM_ATTR_ADDR];
+@@ -1566,9 +1554,7 @@ static int mptcp_nl_cmd_add_addr(struct sk_buff *skb, struct genl_info *info)
+ 			goto out_free;
+ 		}
+ 	}
+-	ret = mptcp_pm_nl_append_new_local_addr(pernet, entry,
+-						!mptcp_pm_has_addr_attr_id(attr, info),
+-						true);
++	ret = mptcp_pm_nl_append_new_local_addr(pernet, entry, true);
+ 	if (ret < 0) {
+ 		GENL_SET_ERR_MSG(info, "too many addresses or duplicate one");
+ 		goto out_free;
+diff --git a/net/mptcp/protocol.c b/net/mptcp/protocol.c
+index 5274b19a5dbd76..965819ddc04c95 100644
+--- a/net/mptcp/protocol.c
++++ b/net/mptcp/protocol.c
+@@ -4264,6 +4264,8 @@ int __init mptcp_proto_v6_init(void)
+ {
+ 	int err;
+ 
++	mptcp_subflow_v6_init();
++
+ 	mptcp_v6_prot = mptcp_prot;
+ 	strcpy(mptcp_v6_prot.name, "MPTCPv6");
+ 	mptcp_v6_prot.slab = NULL;
+diff --git a/net/mptcp/protocol.h b/net/mptcp/protocol.h
+index 329071f6b9e174..fb3e6ac71bd36f 100644
+--- a/net/mptcp/protocol.h
++++ b/net/mptcp/protocol.h
+@@ -677,6 +677,7 @@ static inline void mptcp_subflow_tcp_fallback(struct sock *sk,
+ void __init mptcp_proto_init(void);
+ #if IS_ENABLED(CONFIG_MPTCP_IPV6)
+ int __init mptcp_proto_v6_init(void);
++void __init mptcp_subflow_v6_init(void);
+ #endif
+ 
+ struct sock *mptcp_sk_clone_init(const struct sock *sk,
+diff --git a/net/mptcp/subflow.c b/net/mptcp/subflow.c
+index f9ebcfa1acad6d..4377d4058ee619 100644
+--- a/net/mptcp/subflow.c
++++ b/net/mptcp/subflow.c
+@@ -1993,7 +1993,15 @@ void __init mptcp_subflow_init(void)
+ 	tcp_prot_override.psock_update_sk_prot = NULL;
+ #endif
+ 
++	mptcp_diag_subflow_init(&subflow_ulp_ops);
++
++	if (tcp_register_ulp(&subflow_ulp_ops) != 0)
++		panic("MPTCP: failed to register subflows to ULP\n");
++}
++
+ #if IS_ENABLED(CONFIG_MPTCP_IPV6)
++void __init mptcp_subflow_v6_init(void)
++{
+ 	/* In struct mptcp_subflow_request_sock, we assume the TCP request sock
+ 	 * structures for v4 and v6 have the same size. It should not changed in
+ 	 * the future but better to make sure to be warned if it is no longer
+@@ -2032,10 +2040,5 @@ void __init mptcp_subflow_init(void)
+ 	/* Disable sockmap processing for subflows */
+ 	tcpv6_prot_override.psock_update_sk_prot = NULL;
+ #endif
+-#endif
+-
+-	mptcp_diag_subflow_init(&subflow_ulp_ops);
+-
+-	if (tcp_register_ulp(&subflow_ulp_ops) != 0)
+-		panic("MPTCP: failed to register subflows to ULP\n");
+ }
++#endif
+diff --git a/net/netfilter/nft_ct.c b/net/netfilter/nft_ct.c
+index c5d78f25252262..4c6a02293eeced 100644
+--- a/net/netfilter/nft_ct.c
++++ b/net/netfilter/nft_ct.c
+@@ -985,7 +985,7 @@ static void nft_ct_timeout_obj_destroy(const struct nft_ctx *ctx,
+ 	nf_queue_nf_hook_drop(ctx->net);
+ 	nf_ct_untimeout(ctx->net, timeout);
+ 	nf_ct_netns_put(ctx->net, ctx->family);
+-	kfree(priv->timeout);
++	kfree_rcu(priv->timeout, rcu);
+ }
+ 
+ static int nft_ct_timeout_obj_dump(struct sk_buff *skb,
+diff --git a/net/netfilter/nft_set_pipapo.c b/net/netfilter/nft_set_pipapo.c
+index 673d73dce3883a..cfd0d020f3382b 100644
+--- a/net/netfilter/nft_set_pipapo.c
++++ b/net/netfilter/nft_set_pipapo.c
+@@ -525,6 +525,8 @@ static struct nft_pipapo_elem *pipapo_get(const struct net *net,
+ 	int i;
+ 
+ 	m = priv->clone;
++	if (m->bsize_max == 0)
++		return ret;
+ 
+ 	res_map = kmalloc_array(m->bsize_max, sizeof(*res_map), GFP_ATOMIC);
+ 	if (!res_map) {
+@@ -1395,14 +1397,20 @@ static struct nft_pipapo_match *pipapo_clone(struct nft_pipapo_match *old)
+ 		       src->bsize * sizeof(*dst->lt) *
+ 		       src->groups * NFT_PIPAPO_BUCKETS(src->bb));
+ 
+-		if (src->rules > (INT_MAX / sizeof(*src->mt)))
+-			goto out_mt;
++		if (src->rules > 0) {
++			if (src->rules > (INT_MAX / sizeof(*src->mt)))
++				goto out_mt;
++
++			dst->mt = kvmalloc_array(src->rules, sizeof(*src->mt),
++						 GFP_KERNEL);
++			if (!dst->mt)
++				goto out_mt;
+ 
+-		dst->mt = kvmalloc(src->rules * sizeof(*src->mt), GFP_KERNEL_ACCOUNT);
+-		if (!dst->mt)
+-			goto out_mt;
++			memcpy(dst->mt, src->mt, src->rules * sizeof(*src->mt));
++		} else {
++			dst->mt = NULL;
++		}
+ 
+-		memcpy(dst->mt, src->mt, src->rules * sizeof(*src->mt));
+ 		src++;
+ 		dst++;
+ 	}
+diff --git a/net/rfkill/core.c b/net/rfkill/core.c
+index dac4fdc7488a3e..7a995e7a491b5b 100644
+--- a/net/rfkill/core.c
++++ b/net/rfkill/core.c
+@@ -48,6 +48,7 @@ struct rfkill {
+ 	bool			persistent;
+ 	bool			polling_paused;
+ 	bool			suspended;
++	bool			need_sync;
+ 
+ 	const struct rfkill_ops	*ops;
+ 	void			*data;
+@@ -72,11 +73,14 @@ struct rfkill_int_event {
+ 	struct rfkill_event_ext	ev;
+ };
+ 
++/* Max rfkill events that can be "in-flight" for one data source */
++#define MAX_RFKILL_EVENT	1000
+ struct rfkill_data {
+ 	struct list_head	list;
+ 	struct list_head	events;
+ 	struct mutex		mtx;
+ 	wait_queue_head_t	read_wait;
++	u32			event_count;
+ 	bool			input_handler;
+ 	u8			max_size;
+ };
+@@ -254,10 +258,12 @@ static void rfkill_global_led_trigger_unregister(void)
+ }
+ #endif /* CONFIG_RFKILL_LEDS */
+ 
+-static void rfkill_fill_event(struct rfkill_event_ext *ev,
+-			      struct rfkill *rfkill,
+-			      enum rfkill_operation op)
++static int rfkill_fill_event(struct rfkill_int_event *int_ev,
++			     struct rfkill *rfkill,
++			     struct rfkill_data *data,
++			     enum rfkill_operation op)
+ {
++	struct rfkill_event_ext *ev = &int_ev->ev;
+ 	unsigned long flags;
+ 
+ 	ev->idx = rfkill->idx;
+@@ -270,6 +276,15 @@ static void rfkill_fill_event(struct rfkill_event_ext *ev,
+ 					RFKILL_BLOCK_SW_PREV));
+ 	ev->hard_block_reasons = rfkill->hard_block_reasons;
+ 	spin_unlock_irqrestore(&rfkill->lock, flags);
++
++	scoped_guard(mutex, &data->mtx) {
++		if (data->event_count++ > MAX_RFKILL_EVENT) {
++			data->event_count--;
++			return -ENOSPC;
++		}
++		list_add_tail(&int_ev->list, &data->events);
++	}
++	return 0;
+ }
+ 
+ static void rfkill_send_events(struct rfkill *rfkill, enum rfkill_operation op)
+@@ -281,10 +296,10 @@ static void rfkill_send_events(struct rfkill *rfkill, enum rfkill_operation op)
+ 		ev = kzalloc(sizeof(*ev), GFP_KERNEL);
+ 		if (!ev)
+ 			continue;
+-		rfkill_fill_event(&ev->ev, rfkill, op);
+-		mutex_lock(&data->mtx);
+-		list_add_tail(&ev->list, &data->events);
+-		mutex_unlock(&data->mtx);
++		if (rfkill_fill_event(ev, rfkill, data, op)) {
++			kfree(ev);
++			continue;
++		}
+ 		wake_up_interruptible(&data->read_wait);
+ 	}
+ }
+@@ -368,6 +383,17 @@ static void rfkill_set_block(struct rfkill *rfkill, bool blocked)
+ 		rfkill_event(rfkill);
+ }
+ 
++static void rfkill_sync(struct rfkill *rfkill)
++{
++	lockdep_assert_held(&rfkill_global_mutex);
++
++	if (!rfkill->need_sync)
++		return;
++
++	rfkill_set_block(rfkill, rfkill_global_states[rfkill->type].cur);
++	rfkill->need_sync = false;
++}
++
+ static void rfkill_update_global_state(enum rfkill_type type, bool blocked)
+ {
+ 	int i;
+@@ -685,7 +711,7 @@ static ssize_t name_show(struct device *dev, struct device_attribute *attr,
+ {
+ 	struct rfkill *rfkill = to_rfkill(dev);
+ 
+-	return sprintf(buf, "%s\n", rfkill->name);
++	return sysfs_emit(buf, "%s\n", rfkill->name);
+ }
+ static DEVICE_ATTR_RO(name);
+ 
+@@ -694,7 +720,7 @@ static ssize_t type_show(struct device *dev, struct device_attribute *attr,
+ {
+ 	struct rfkill *rfkill = to_rfkill(dev);
+ 
+-	return sprintf(buf, "%s\n", rfkill_types[rfkill->type]);
++	return sysfs_emit(buf, "%s\n", rfkill_types[rfkill->type]);
+ }
+ static DEVICE_ATTR_RO(type);
+ 
+@@ -703,7 +729,7 @@ static ssize_t index_show(struct device *dev, struct device_attribute *attr,
+ {
+ 	struct rfkill *rfkill = to_rfkill(dev);
+ 
+-	return sprintf(buf, "%d\n", rfkill->idx);
++	return sysfs_emit(buf, "%d\n", rfkill->idx);
+ }
+ static DEVICE_ATTR_RO(index);
+ 
+@@ -712,7 +738,7 @@ static ssize_t persistent_show(struct device *dev,
+ {
+ 	struct rfkill *rfkill = to_rfkill(dev);
+ 
+-	return sprintf(buf, "%d\n", rfkill->persistent);
++	return sysfs_emit(buf, "%d\n", rfkill->persistent);
+ }
+ static DEVICE_ATTR_RO(persistent);
+ 
+@@ -721,7 +747,7 @@ static ssize_t hard_show(struct device *dev, struct device_attribute *attr,
+ {
+ 	struct rfkill *rfkill = to_rfkill(dev);
+ 
+-	return sprintf(buf, "%d\n", (rfkill->state & RFKILL_BLOCK_HW) ? 1 : 0 );
++	return sysfs_emit(buf, "%d\n", (rfkill->state & RFKILL_BLOCK_HW) ? 1 : 0);
+ }
+ static DEVICE_ATTR_RO(hard);
+ 
+@@ -730,7 +756,11 @@ static ssize_t soft_show(struct device *dev, struct device_attribute *attr,
+ {
+ 	struct rfkill *rfkill = to_rfkill(dev);
+ 
+-	return sprintf(buf, "%d\n", (rfkill->state & RFKILL_BLOCK_SW) ? 1 : 0 );
++	mutex_lock(&rfkill_global_mutex);
++	rfkill_sync(rfkill);
++	mutex_unlock(&rfkill_global_mutex);
++
++	return sysfs_emit(buf, "%d\n", (rfkill->state & RFKILL_BLOCK_SW) ? 1 : 0);
+ }
+ 
+ static ssize_t soft_store(struct device *dev, struct device_attribute *attr,
+@@ -751,6 +781,7 @@ static ssize_t soft_store(struct device *dev, struct device_attribute *attr,
+ 		return -EINVAL;
+ 
+ 	mutex_lock(&rfkill_global_mutex);
++	rfkill_sync(rfkill);
+ 	rfkill_set_block(rfkill, state);
+ 	mutex_unlock(&rfkill_global_mutex);
+ 
+@@ -764,7 +795,7 @@ static ssize_t hard_block_reasons_show(struct device *dev,
+ {
+ 	struct rfkill *rfkill = to_rfkill(dev);
+ 
+-	return sprintf(buf, "0x%lx\n", rfkill->hard_block_reasons);
++	return sysfs_emit(buf, "0x%lx\n", rfkill->hard_block_reasons);
+ }
+ static DEVICE_ATTR_RO(hard_block_reasons);
+ 
+@@ -783,7 +814,11 @@ static ssize_t state_show(struct device *dev, struct device_attribute *attr,
+ {
+ 	struct rfkill *rfkill = to_rfkill(dev);
+ 
+-	return sprintf(buf, "%d\n", user_state_from_blocked(rfkill->state));
++	mutex_lock(&rfkill_global_mutex);
++	rfkill_sync(rfkill);
++	mutex_unlock(&rfkill_global_mutex);
++
++	return sysfs_emit(buf, "%d\n", user_state_from_blocked(rfkill->state));
+ }
+ 
+ static ssize_t state_store(struct device *dev, struct device_attribute *attr,
+@@ -805,6 +840,7 @@ static ssize_t state_store(struct device *dev, struct device_attribute *attr,
+ 		return -EINVAL;
+ 
+ 	mutex_lock(&rfkill_global_mutex);
++	rfkill_sync(rfkill);
+ 	rfkill_set_block(rfkill, state == RFKILL_USER_STATE_SOFT_BLOCKED);
+ 	mutex_unlock(&rfkill_global_mutex);
+ 
+@@ -1032,14 +1068,10 @@ static void rfkill_uevent_work(struct work_struct *work)
+ 
+ static void rfkill_sync_work(struct work_struct *work)
+ {
+-	struct rfkill *rfkill;
+-	bool cur;
+-
+-	rfkill = container_of(work, struct rfkill, sync_work);
++	struct rfkill *rfkill = container_of(work, struct rfkill, sync_work);
+ 
+ 	mutex_lock(&rfkill_global_mutex);
+-	cur = rfkill_global_states[rfkill->type].cur;
+-	rfkill_set_block(rfkill, cur);
++	rfkill_sync(rfkill);
+ 	mutex_unlock(&rfkill_global_mutex);
+ }
+ 
+@@ -1087,6 +1119,7 @@ int __must_check rfkill_register(struct rfkill *rfkill)
+ 			round_jiffies_relative(POLL_INTERVAL));
+ 
+ 	if (!rfkill->persistent || rfkill_epo_lock_active) {
++		rfkill->need_sync = true;
+ 		schedule_work(&rfkill->sync_work);
+ 	} else {
+ #ifdef CONFIG_RFKILL_INPUT
+@@ -1161,7 +1194,6 @@ static int rfkill_fop_open(struct inode *inode, struct file *file)
+ 	init_waitqueue_head(&data->read_wait);
+ 
+ 	mutex_lock(&rfkill_global_mutex);
+-	mutex_lock(&data->mtx);
+ 	/*
+ 	 * start getting events from elsewhere but hold mtx to get
+ 	 * startup events added first
+@@ -1171,11 +1203,11 @@ static int rfkill_fop_open(struct inode *inode, struct file *file)
+ 		ev = kzalloc(sizeof(*ev), GFP_KERNEL);
+ 		if (!ev)
+ 			goto free;
+-		rfkill_fill_event(&ev->ev, rfkill, RFKILL_OP_ADD);
+-		list_add_tail(&ev->list, &data->events);
++		rfkill_sync(rfkill);
++		if (rfkill_fill_event(ev, rfkill, data, RFKILL_OP_ADD))
++			kfree(ev);
+ 	}
+ 	list_add(&data->list, &rfkill_fds);
+-	mutex_unlock(&data->mtx);
+ 	mutex_unlock(&rfkill_global_mutex);
+ 
+ 	file->private_data = data;
+@@ -1183,7 +1215,6 @@ static int rfkill_fop_open(struct inode *inode, struct file *file)
+ 	return stream_open(inode, file);
+ 
+  free:
+-	mutex_unlock(&data->mtx);
+ 	mutex_unlock(&rfkill_global_mutex);
+ 	mutex_destroy(&data->mtx);
+ 	list_for_each_entry_safe(ev, tmp, &data->events, list)
+@@ -1244,6 +1275,7 @@ static ssize_t rfkill_fop_read(struct file *file, char __user *buf,
+ 		ret = -EFAULT;
+ 
+ 	list_del(&ev->list);
++	data->event_count--;
+ 	kfree(ev);
+  out:
+ 	mutex_unlock(&data->mtx);
+diff --git a/net/rxrpc/af_rxrpc.c b/net/rxrpc/af_rxrpc.c
+index 9b3efe6d580fe5..1cd217e225663f 100644
+--- a/net/rxrpc/af_rxrpc.c
++++ b/net/rxrpc/af_rxrpc.c
+@@ -615,9 +615,6 @@ static int rxrpc_setsockopt(struct socket *sock, int level, int optname,
+ 			goto success;
+ 
+ 		case RXRPC_SECURITY_KEY:
+-			ret = -EINVAL;
+-			if (rx->key)
+-				goto error;
+ 			ret = -EISCONN;
+ 			if (rx->sk.sk_state != RXRPC_UNBOUND)
+ 				goto error;
+@@ -625,9 +622,6 @@ static int rxrpc_setsockopt(struct socket *sock, int level, int optname,
+ 			goto error;
+ 
+ 		case RXRPC_SECURITY_KEYRING:
+-			ret = -EINVAL;
+-			if (rx->key)
+-				goto error;
+ 			ret = -EISCONN;
+ 			if (rx->sk.sk_state != RXRPC_UNBOUND)
+ 				goto error;
+diff --git a/net/rxrpc/key.c b/net/rxrpc/key.c
+index 8d2073e0e3da5d..0892e155357025 100644
+--- a/net/rxrpc/key.c
++++ b/net/rxrpc/key.c
+@@ -452,7 +452,7 @@ int rxrpc_request_key(struct rxrpc_sock *rx, sockptr_t optval, int optlen)
+ 
+ 	_enter("");
+ 
+-	if (optlen <= 0 || optlen > PAGE_SIZE - 1 || rx->securities)
++	if (optlen <= 0 || optlen > PAGE_SIZE - 1 || rx->key)
+ 		return -EINVAL;
+ 
+ 	description = memdup_sockptr_nul(optval, optlen);
+diff --git a/net/rxrpc/server_key.c b/net/rxrpc/server_key.c
+index ee269e0e6ee878..f4b698adecb130 100644
+--- a/net/rxrpc/server_key.c
++++ b/net/rxrpc/server_key.c
+@@ -125,6 +125,9 @@ int rxrpc_server_keyring(struct rxrpc_sock *rx, sockptr_t optval, int optlen)
+ 
+ 	_enter("");
+ 
++	if (rx->securities)
++		return -EINVAL;
++
+ 	if (optlen <= 0 || optlen > PAGE_SIZE - 1)
+ 		return -EINVAL;
+ 
+diff --git a/net/tipc/group.c b/net/tipc/group.c
+index 3e137d8c9d2ff5..215f2a7d84588a 100644
+--- a/net/tipc/group.c
++++ b/net/tipc/group.c
+@@ -746,6 +746,7 @@ void tipc_group_proto_rcv(struct tipc_group *grp, bool *usr_wakeup,
+ 	u32 port = msg_origport(hdr);
+ 	struct tipc_member *m, *pm;
+ 	u16 remitted, in_flight;
++	u16 acked;
+ 
+ 	if (!grp)
+ 		return;
+@@ -798,7 +799,10 @@ void tipc_group_proto_rcv(struct tipc_group *grp, bool *usr_wakeup,
+ 	case GRP_ACK_MSG:
+ 		if (!m)
+ 			return;
+-		m->bc_acked = msg_grp_bc_acked(hdr);
++		acked = msg_grp_bc_acked(hdr);
++		if (less_eq(acked, m->bc_acked))
++			return;
++		m->bc_acked = acked;
+ 		if (--grp->bc_ackers)
+ 			return;
+ 		list_del_init(&m->small_win);
+diff --git a/net/tls/tls_sw.c b/net/tls/tls_sw.c
+index 4948af3bad13fd..a574d7ddd14990 100644
+--- a/net/tls/tls_sw.c
++++ b/net/tls/tls_sw.c
+@@ -585,6 +585,16 @@ static int tls_do_encryption(struct sock *sk,
+ 	if (rc == -EBUSY) {
+ 		rc = tls_encrypt_async_wait(ctx);
+ 		rc = rc ?: -EINPROGRESS;
++		/*
++		 * The async callback tls_encrypt_done() has already
++		 * decremented encrypt_pending and restored the sge on
++		 * both success and error. Skip the synchronous cleanup
++		 * below on error, just remove the record and return.
++		 */
++		if (rc != -EINPROGRESS) {
++			list_del(&rec->list);
++			return rc;
++		}
+ 	}
+ 	if (!rc || rc != -EINPROGRESS) {
+ 		atomic_dec(&ctx->encrypt_pending);
+diff --git a/net/xfrm/xfrm_user.c b/net/xfrm/xfrm_user.c
+index e4f9b98a46d9c9..64137facd128e5 100644
+--- a/net/xfrm/xfrm_user.c
++++ b/net/xfrm/xfrm_user.c
+@@ -3524,6 +3524,8 @@ static int build_polexpire(struct sk_buff *skb, struct xfrm_policy *xp,
+ 		return err;
+ 	}
+ 	upe->hard = !!hard;
++	/* clear the padding bytes */
++	memset_after(upe, 0, hard);
+ 
+ 	nlmsg_end(skb, nlh);
+ 	return 0;
+@@ -3679,6 +3681,7 @@ static int build_report(struct sk_buff *skb, u8 proto,
+ 		return -EMSGSIZE;
+ 
+ 	ur = nlmsg_data(nlh);
++	memset(ur, 0, sizeof(*ur));
+ 	ur->proto = proto;
+ 	memcpy(&ur->sel, sel, sizeof(ur->sel));
+ 
+diff --git a/security/apparmor/apparmorfs.c b/security/apparmor/apparmorfs.c
+index fa518cd82366a4..ff84ce10ca67e9 100644
+--- a/security/apparmor/apparmorfs.c
++++ b/security/apparmor/apparmorfs.c
+@@ -32,6 +32,7 @@
+ #include "include/crypto.h"
+ #include "include/ipc.h"
+ #include "include/label.h"
++#include "include/lib.h"
+ #include "include/policy.h"
+ #include "include/policy_ns.h"
+ #include "include/resource.h"
+@@ -62,6 +63,7 @@
+  * securityfs and apparmorfs filesystems.
+  */
+ 
++#define IREF_POISON 101
+ 
+ /*
+  * support fns
+@@ -79,7 +81,7 @@ static void rawdata_f_data_free(struct rawdata_f_data *private)
+ 	if (!private)
+ 		return;
+ 
+-	aa_put_loaddata(private->loaddata);
++	aa_put_i_loaddata(private->loaddata);
+ 	kvfree(private);
+ }
+ 
+@@ -153,6 +155,71 @@ static int aafs_show_path(struct seq_file *seq, struct dentry *dentry)
+ 	return 0;
+ }
+ 
++static struct aa_ns *get_ns_common_ref(struct aa_common_ref *ref)
++{
++	if (ref) {
++		struct aa_label *reflabel = container_of(ref, struct aa_label,
++							 count);
++		return aa_get_ns(labels_ns(reflabel));
++	}
++
++	return NULL;
++}
++
++static struct aa_proxy *get_proxy_common_ref(struct aa_common_ref *ref)
++{
++	if (ref)
++		return aa_get_proxy(container_of(ref, struct aa_proxy, count));
++
++	return NULL;
++}
++
++static struct aa_loaddata *get_loaddata_common_ref(struct aa_common_ref *ref)
++{
++	if (ref)
++		return aa_get_i_loaddata(container_of(ref, struct aa_loaddata,
++						      count));
++	return NULL;
++}
++
++static void aa_put_common_ref(struct aa_common_ref *ref)
++{
++	if (!ref)
++		return;
++
++	switch (ref->reftype) {
++	case REF_RAWDATA:
++		aa_put_i_loaddata(container_of(ref, struct aa_loaddata,
++					       count));
++		break;
++	case REF_PROXY:
++		aa_put_proxy(container_of(ref, struct aa_proxy,
++					  count));
++		break;
++	case REF_NS:
++		/* ns count is held on its unconfined label */
++		aa_put_ns(labels_ns(container_of(ref, struct aa_label, count)));
++		break;
++	default:
++		AA_BUG(true, "unknown refcount type");
++		break;
++	}
++}
++
++static void aa_get_common_ref(struct aa_common_ref *ref)
++{
++	kref_get(&ref->count);
++}
++
++static void aafs_evict(struct inode *inode)
++{
++	struct aa_common_ref *ref = inode->i_private;
++
++	clear_inode(inode);
++	aa_put_common_ref(ref);
++	inode->i_private = (void *) IREF_POISON;
++}
++
+ static void aafs_free_inode(struct inode *inode)
+ {
+ 	if (S_ISLNK(inode->i_mode))
+@@ -162,6 +229,7 @@ static void aafs_free_inode(struct inode *inode)
+ 
+ static const struct super_operations aafs_super_ops = {
+ 	.statfs = simple_statfs,
++	.evict_inode = aafs_evict,
+ 	.free_inode = aafs_free_inode,
+ 	.show_path = aafs_show_path,
+ };
+@@ -262,7 +330,8 @@ static int __aafs_setup_d_inode(struct inode *dir, struct dentry *dentry,
+  * aafs_remove(). Will return ERR_PTR on failure.
+  */
+ static struct dentry *aafs_create(const char *name, umode_t mode,
+-				  struct dentry *parent, void *data, void *link,
++				  struct dentry *parent,
++				  struct aa_common_ref *data, void *link,
+ 				  const struct file_operations *fops,
+ 				  const struct inode_operations *iops)
+ {
+@@ -299,6 +368,9 @@ static struct dentry *aafs_create(const char *name, umode_t mode,
+ 		goto fail_dentry;
+ 	inode_unlock(dir);
+ 
++	if (data)
++		aa_get_common_ref(data);
++
+ 	return dentry;
+ 
+ fail_dentry:
+@@ -323,7 +395,8 @@ fail_lock:
+  * see aafs_create
+  */
+ static struct dentry *aafs_create_file(const char *name, umode_t mode,
+-				       struct dentry *parent, void *data,
++				       struct dentry *parent,
++				       struct aa_common_ref *data,
+ 				       const struct file_operations *fops)
+ {
+ 	return aafs_create(name, mode, parent, data, NULL, fops, NULL);
+@@ -404,7 +477,8 @@ static struct aa_loaddata *aa_simple_write_to_buffer(const char __user *userbuf,
+ 
+ 	data->size = copy_size;
+ 	if (copy_from_user(data->data, userbuf, copy_size)) {
+-		aa_put_loaddata(data);
++		/* trigger free - don't need to put pcount */
++		aa_put_i_loaddata(data);
+ 		return ERR_PTR(-EFAULT);
+ 	}
+ 
+@@ -412,7 +486,8 @@ static struct aa_loaddata *aa_simple_write_to_buffer(const char __user *userbuf,
+ }
+ 
+ static ssize_t policy_update(u32 mask, const char __user *buf, size_t size,
+-			     loff_t *pos, struct aa_ns *ns)
++			     loff_t *pos, struct aa_ns *ns,
++			     const struct cred *ocred)
+ {
+ 	struct aa_loaddata *data;
+ 	struct aa_label *label;
+@@ -423,7 +498,7 @@ static ssize_t policy_update(u32 mask, const char __user *buf, size_t size,
+ 	/* high level check about policy management - fine grained in
+ 	 * below after unpack
+ 	 */
+-	error = aa_may_manage_policy(label, ns, mask);
++	error = aa_may_manage_policy(current_cred(), label, ns, ocred, mask);
+ 	if (error)
+ 		goto end_section;
+ 
+@@ -431,7 +506,10 @@ static ssize_t policy_update(u32 mask, const char __user *buf, size_t size,
+ 	error = PTR_ERR(data);
+ 	if (!IS_ERR(data)) {
+ 		error = aa_replace_profiles(ns, label, mask, data);
+-		aa_put_loaddata(data);
++		/* put pcount, which will put count and free if no
++		 * profiles referencing it.
++		 */
++		aa_put_profile_loaddata(data);
+ 	}
+ end_section:
+ 	end_current_label_crit_section(label);
+@@ -443,8 +521,9 @@ end_section:
+ static ssize_t profile_load(struct file *f, const char __user *buf, size_t size,
+ 			    loff_t *pos)
+ {
+-	struct aa_ns *ns = aa_get_ns(f->f_inode->i_private);
+-	int error = policy_update(AA_MAY_LOAD_POLICY, buf, size, pos, ns);
++	struct aa_ns *ns = get_ns_common_ref(f->f_inode->i_private);
++	int error = policy_update(AA_MAY_LOAD_POLICY, buf, size, pos, ns,
++				  f->f_cred);
+ 
+ 	aa_put_ns(ns);
+ 
+@@ -460,9 +539,9 @@ static const struct file_operations aa_fs_profile_load = {
+ static ssize_t profile_replace(struct file *f, const char __user *buf,
+ 			       size_t size, loff_t *pos)
+ {
+-	struct aa_ns *ns = aa_get_ns(f->f_inode->i_private);
++	struct aa_ns *ns = get_ns_common_ref(f->f_inode->i_private);
+ 	int error = policy_update(AA_MAY_LOAD_POLICY | AA_MAY_REPLACE_POLICY,
+-				  buf, size, pos, ns);
++				  buf, size, pos, ns, f->f_cred);
+ 	aa_put_ns(ns);
+ 
+ 	return error;
+@@ -480,13 +559,14 @@ static ssize_t profile_remove(struct file *f, const char __user *buf,
+ 	struct aa_loaddata *data;
+ 	struct aa_label *label;
+ 	ssize_t error;
+-	struct aa_ns *ns = aa_get_ns(f->f_inode->i_private);
++	struct aa_ns *ns = get_ns_common_ref(f->f_inode->i_private);
+ 
+ 	label = begin_current_label_crit_section();
+ 	/* high level check about policy management - fine grained in
+ 	 * below after unpack
+ 	 */
+-	error = aa_may_manage_policy(label, ns, AA_MAY_REMOVE_POLICY);
++	error = aa_may_manage_policy(current_cred(), label, ns,
++				     f->f_cred, AA_MAY_REMOVE_POLICY);
+ 	if (error)
+ 		goto out;
+ 
+@@ -500,7 +580,7 @@ static ssize_t profile_remove(struct file *f, const char __user *buf,
+ 	if (!IS_ERR(data)) {
+ 		data->data[size] = 0;
+ 		error = aa_remove_profiles(ns, label, data->data, size);
+-		aa_put_loaddata(data);
++		aa_put_profile_loaddata(data);
+ 	}
+  out:
+ 	end_current_label_crit_section(label);
+@@ -569,7 +649,7 @@ static int ns_revision_open(struct inode *inode, struct file *file)
+ 	if (!rev)
+ 		return -ENOMEM;
+ 
+-	rev->ns = aa_get_ns(inode->i_private);
++	rev->ns = get_ns_common_ref(inode->i_private);
+ 	if (!rev->ns)
+ 		rev->ns = aa_get_current_ns();
+ 	file->private_data = rev;
+@@ -1046,7 +1126,7 @@ static const struct file_operations seq_profile_ ##NAME ##_fops = {	      \
+ static int seq_profile_open(struct inode *inode, struct file *file,
+ 			    int (*show)(struct seq_file *, void *))
+ {
+-	struct aa_proxy *proxy = aa_get_proxy(inode->i_private);
++	struct aa_proxy *proxy = get_proxy_common_ref(inode->i_private);
+ 	int error = single_open(file, show, proxy);
+ 
+ 	if (error) {
+@@ -1224,18 +1304,17 @@ static const struct file_operations seq_rawdata_ ##NAME ##_fops = {	      \
+ static int seq_rawdata_open(struct inode *inode, struct file *file,
+ 			    int (*show)(struct seq_file *, void *))
+ {
+-	struct aa_loaddata *data = __aa_get_loaddata(inode->i_private);
++	struct aa_loaddata *data = get_loaddata_common_ref(inode->i_private);
+ 	int error;
+ 
+ 	if (!data)
+-		/* lost race this ent is being reaped */
+ 		return -ENOENT;
+ 
+ 	error = single_open(file, show, data);
+ 	if (error) {
+ 		AA_BUG(file->private_data &&
+ 		       ((struct seq_file *)file->private_data)->private);
+-		aa_put_loaddata(data);
++		aa_put_i_loaddata(data);
+ 	}
+ 
+ 	return error;
+@@ -1246,7 +1325,7 @@ static int seq_rawdata_release(struct inode *inode, struct file *file)
+ 	struct seq_file *seq = (struct seq_file *) file->private_data;
+ 
+ 	if (seq)
+-		aa_put_loaddata(seq->private);
++		aa_put_i_loaddata(seq->private);
+ 
+ 	return single_release(inode, file);
+ }
+@@ -1368,9 +1447,8 @@ static int rawdata_open(struct inode *inode, struct file *file)
+ 	if (!aa_current_policy_view_capable(NULL))
+ 		return -EACCES;
+ 
+-	loaddata = __aa_get_loaddata(inode->i_private);
++	loaddata = get_loaddata_common_ref(inode->i_private);
+ 	if (!loaddata)
+-		/* lost race: this entry is being reaped */
+ 		return -ENOENT;
+ 
+ 	private = rawdata_f_data_alloc(loaddata->size);
+@@ -1395,7 +1473,7 @@ fail_decompress:
+ 	return error;
+ 
+ fail_private_alloc:
+-	aa_put_loaddata(loaddata);
++	aa_put_i_loaddata(loaddata);
+ 	return error;
+ }
+ 
+@@ -1412,7 +1490,6 @@ static void remove_rawdata_dents(struct aa_loaddata *rawdata)
+ 
+ 	for (i = 0; i < AAFS_LOADDATA_NDENTS; i++) {
+ 		if (!IS_ERR_OR_NULL(rawdata->dents[i])) {
+-			/* no refcounts on i_private */
+ 			aafs_remove(rawdata->dents[i]);
+ 			rawdata->dents[i] = NULL;
+ 		}
+@@ -1455,35 +1532,37 @@ int __aa_fs_create_rawdata(struct aa_ns *ns, struct aa_loaddata *rawdata)
+ 		return PTR_ERR(dir);
+ 	rawdata->dents[AAFS_LOADDATA_DIR] = dir;
+ 
+-	dent = aafs_create_file("abi", S_IFREG | 0444, dir, rawdata,
++	dent = aafs_create_file("abi", S_IFREG | 0444, dir, &rawdata->count,
+ 				      &seq_rawdata_abi_fops);
+ 	if (IS_ERR(dent))
+ 		goto fail;
+ 	rawdata->dents[AAFS_LOADDATA_ABI] = dent;
+ 
+-	dent = aafs_create_file("revision", S_IFREG | 0444, dir, rawdata,
+-				      &seq_rawdata_revision_fops);
++	dent = aafs_create_file("revision", S_IFREG | 0444, dir,
++				&rawdata->count,
++				&seq_rawdata_revision_fops);
+ 	if (IS_ERR(dent))
+ 		goto fail;
+ 	rawdata->dents[AAFS_LOADDATA_REVISION] = dent;
+ 
+ 	if (aa_g_hash_policy) {
+ 		dent = aafs_create_file("sha1", S_IFREG | 0444, dir,
+-					      rawdata, &seq_rawdata_hash_fops);
++					&rawdata->count,
++					&seq_rawdata_hash_fops);
+ 		if (IS_ERR(dent))
+ 			goto fail;
+ 		rawdata->dents[AAFS_LOADDATA_HASH] = dent;
+ 	}
+ 
+ 	dent = aafs_create_file("compressed_size", S_IFREG | 0444, dir,
+-				rawdata,
++				&rawdata->count,
+ 				&seq_rawdata_compressed_size_fops);
+ 	if (IS_ERR(dent))
+ 		goto fail;
+ 	rawdata->dents[AAFS_LOADDATA_COMPRESSED_SIZE] = dent;
+ 
+-	dent = aafs_create_file("raw_data", S_IFREG | 0444,
+-				      dir, rawdata, &rawdata_fops);
++	dent = aafs_create_file("raw_data", S_IFREG | 0444, dir,
++				&rawdata->count, &rawdata_fops);
+ 	if (IS_ERR(dent))
+ 		goto fail;
+ 	rawdata->dents[AAFS_LOADDATA_DATA] = dent;
+@@ -1491,13 +1570,11 @@ int __aa_fs_create_rawdata(struct aa_ns *ns, struct aa_loaddata *rawdata)
+ 
+ 	rawdata->ns = aa_get_ns(ns);
+ 	list_add(&rawdata->list, &ns->rawdata_list);
+-	/* no refcount on inode rawdata */
+ 
+ 	return 0;
+ 
+ fail:
+ 	remove_rawdata_dents(rawdata);
+-
+ 	return PTR_ERR(dent);
+ }
+ #endif /* CONFIG_SECURITY_APPARMOR_EXPORT_BINARY */
+@@ -1521,13 +1598,10 @@ void __aafs_profile_rmdir(struct aa_profile *profile)
+ 		__aafs_profile_rmdir(child);
+ 
+ 	for (i = AAFS_PROF_SIZEOF - 1; i >= 0; --i) {
+-		struct aa_proxy *proxy;
+ 		if (!profile->dents[i])
+ 			continue;
+ 
+-		proxy = d_inode(profile->dents[i])->i_private;
+ 		aafs_remove(profile->dents[i]);
+-		aa_put_proxy(proxy);
+ 		profile->dents[i] = NULL;
+ 	}
+ }
+@@ -1557,14 +1631,7 @@ static struct dentry *create_profile_file(struct dentry *dir, const char *name,
+ 					  struct aa_profile *profile,
+ 					  const struct file_operations *fops)
+ {
+-	struct aa_proxy *proxy = aa_get_proxy(profile->label.proxy);
+-	struct dentry *dent;
+-
+-	dent = aafs_create_file(name, S_IFREG | 0444, dir, proxy, fops);
+-	if (IS_ERR(dent))
+-		aa_put_proxy(proxy);
+-
+-	return dent;
++	return aafs_create_file(name, S_IFREG | 0444, dir, &profile->label.proxy->count, fops);
+ }
+ 
+ #ifdef CONFIG_SECURITY_APPARMOR_EXPORT_BINARY
+@@ -1615,7 +1682,8 @@ static const char *rawdata_get_link_base(struct dentry *dentry,
+ 					 struct delayed_call *done,
+ 					 const char *name)
+ {
+-	struct aa_proxy *proxy = inode->i_private;
++	struct aa_common_ref *ref = inode->i_private;
++	struct aa_proxy *proxy = container_of(ref, struct aa_proxy, count);
+ 	struct aa_label *label;
+ 	struct aa_profile *profile;
+ 	char *target;
+@@ -1757,27 +1825,24 @@ int __aafs_profile_mkdir(struct aa_profile *profile, struct dentry *parent)
+ 	if (profile->rawdata) {
+ 		if (aa_g_hash_policy) {
+ 			dent = aafs_create("raw_sha1", S_IFLNK | 0444, dir,
+-					   profile->label.proxy, NULL, NULL,
+-					   &rawdata_link_sha1_iops);
++					   &profile->label.proxy->count, NULL,
++					   NULL, &rawdata_link_sha1_iops);
+ 			if (IS_ERR(dent))
+ 				goto fail;
+-			aa_get_proxy(profile->label.proxy);
+ 			profile->dents[AAFS_PROF_RAW_HASH] = dent;
+ 		}
+ 		dent = aafs_create("raw_abi", S_IFLNK | 0444, dir,
+-				   profile->label.proxy, NULL, NULL,
++				   &profile->label.proxy->count, NULL, NULL,
+ 				   &rawdata_link_abi_iops);
+ 		if (IS_ERR(dent))
+ 			goto fail;
+-		aa_get_proxy(profile->label.proxy);
+ 		profile->dents[AAFS_PROF_RAW_ABI] = dent;
+ 
+ 		dent = aafs_create("raw_data", S_IFLNK | 0444, dir,
+-				   profile->label.proxy, NULL, NULL,
++				   &profile->label.proxy->count, NULL, NULL,
+ 				   &rawdata_link_data_iops);
+ 		if (IS_ERR(dent))
+ 			goto fail;
+-		aa_get_proxy(profile->label.proxy);
+ 		profile->dents[AAFS_PROF_RAW_DATA] = dent;
+ 	}
+ #endif /*CONFIG_SECURITY_APPARMOR_EXPORT_BINARY */
+@@ -1808,12 +1873,13 @@ static int ns_mkdir_op(struct user_namespace *mnt_userns, struct inode *dir,
+ 	int error;
+ 
+ 	label = begin_current_label_crit_section();
+-	error = aa_may_manage_policy(label, NULL, AA_MAY_LOAD_POLICY);
++	error = aa_may_manage_policy(current_cred(), label, NULL, NULL,
++				     AA_MAY_LOAD_POLICY);
+ 	end_current_label_crit_section(label);
+ 	if (error)
+ 		return error;
+ 
+-	parent = aa_get_ns(dir->i_private);
++	parent = get_ns_common_ref(dir->i_private);
+ 	AA_BUG(d_inode(ns_subns_dir(parent)) != dir);
+ 
+ 	/* we have to unlock and then relock to get locking order right
+@@ -1857,12 +1923,13 @@ static int ns_rmdir_op(struct inode *dir, struct dentry *dentry)
+ 	int error;
+ 
+ 	label = begin_current_label_crit_section();
+-	error = aa_may_manage_policy(label, NULL, AA_MAY_LOAD_POLICY);
++	error = aa_may_manage_policy(current_cred(), label, NULL, NULL,
++				     AA_MAY_LOAD_POLICY);
+ 	end_current_label_crit_section(label);
+ 	if (error)
+ 		return error;
+ 
+-	parent = aa_get_ns(dir->i_private);
++	parent = get_ns_common_ref(dir->i_private);
+ 	/* rmdir calls the generic securityfs functions to remove files
+ 	 * from the apparmor dir. It is up to the apparmor ns locking
+ 	 * to avoid races.
+@@ -1932,27 +1999,6 @@ void __aafs_ns_rmdir(struct aa_ns *ns)
+ 
+ 	__aa_fs_list_remove_rawdata(ns);
+ 
+-	if (ns_subns_dir(ns)) {
+-		sub = d_inode(ns_subns_dir(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-	if (ns_subload(ns)) {
+-		sub = d_inode(ns_subload(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-	if (ns_subreplace(ns)) {
+-		sub = d_inode(ns_subreplace(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-	if (ns_subremove(ns)) {
+-		sub = d_inode(ns_subremove(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-	if (ns_subrevision(ns)) {
+-		sub = d_inode(ns_subrevision(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-
+ 	for (i = AAFS_NS_SIZEOF - 1; i >= 0; --i) {
+ 		aafs_remove(ns->dents[i]);
+ 		ns->dents[i] = NULL;
+@@ -1977,40 +2023,40 @@ static int __aafs_ns_mkdir_entries(struct aa_ns *ns, struct dentry *dir)
+ 		return PTR_ERR(dent);
+ 	ns_subdata_dir(ns) = dent;
+ 
+-	dent = aafs_create_file("revision", 0444, dir, ns,
++	dent = aafs_create_file("revision", 0444, dir,
++				&ns->unconfined->label.count,
+ 				&aa_fs_ns_revision_fops);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subrevision(ns) = dent;
+ 
+-	dent = aafs_create_file(".load", 0640, dir, ns,
+-				      &aa_fs_profile_load);
++	dent = aafs_create_file(".load", 0640, dir,
++				&ns->unconfined->label.count,
++				&aa_fs_profile_load);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subload(ns) = dent;
+ 
+-	dent = aafs_create_file(".replace", 0640, dir, ns,
+-				      &aa_fs_profile_replace);
++	dent = aafs_create_file(".replace", 0640, dir,
++				&ns->unconfined->label.count,
++				&aa_fs_profile_replace);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subreplace(ns) = dent;
+ 
+-	dent = aafs_create_file(".remove", 0640, dir, ns,
+-				      &aa_fs_profile_remove);
++	dent = aafs_create_file(".remove", 0640, dir,
++				&ns->unconfined->label.count,
++				&aa_fs_profile_remove);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subremove(ns) = dent;
+ 
+ 	  /* use create_dentry so we can supply private data */
+-	dent = aafs_create("namespaces", S_IFDIR | 0755, dir, ns, NULL, NULL,
+-			   &ns_dir_inode_operations);
++	dent = aafs_create("namespaces", S_IFDIR | 0755, dir,
++			   &ns->unconfined->label.count,
++			   NULL, NULL, &ns_dir_inode_operations);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subns_dir(ns) = dent;
+ 
+ 	return 0;
+diff --git a/security/apparmor/include/label.h b/security/apparmor/include/label.h
+index 860484c6f99a63..9887bfbab0f3d8 100644
+--- a/security/apparmor/include/label.h
++++ b/security/apparmor/include/label.h
+@@ -101,7 +101,7 @@ enum label_flags {
+ 
+ struct aa_label;
+ struct aa_proxy {
+-	struct kref count;
++	struct aa_common_ref count;
+ 	struct aa_label __rcu *label;
+ };
+ 
+@@ -121,7 +121,7 @@ struct label_it {
+  * @ent: set of profiles for label, actual size determined by @size
+  */
+ struct aa_label {
+-	struct kref count;
++	struct aa_common_ref count;
+ 	struct rb_node node;
+ 	struct rcu_head rcu;
+ 	struct aa_proxy *proxy;
+@@ -372,7 +372,7 @@ int aa_label_match(struct aa_profile *profile, struct aa_label *label,
+  */
+ static inline struct aa_label *__aa_get_label(struct aa_label *l)
+ {
+-	if (l && kref_get_unless_zero(&l->count))
++	if (l && kref_get_unless_zero(&l->count.count))
+ 		return l;
+ 
+ 	return NULL;
+@@ -381,7 +381,7 @@ static inline struct aa_label *__aa_get_label(struct aa_label *l)
+ static inline struct aa_label *aa_get_label(struct aa_label *l)
+ {
+ 	if (l)
+-		kref_get(&(l->count));
++		kref_get(&(l->count.count));
+ 
+ 	return l;
+ }
+@@ -401,7 +401,7 @@ static inline struct aa_label *aa_get_label_rcu(struct aa_label __rcu **l)
+ 	rcu_read_lock();
+ 	do {
+ 		c = rcu_dereference(*l);
+-	} while (c && !kref_get_unless_zero(&c->count));
++	} while (c && !kref_get_unless_zero(&c->count.count));
+ 	rcu_read_unlock();
+ 
+ 	return c;
+@@ -441,7 +441,7 @@ static inline struct aa_label *aa_get_newest_label(struct aa_label *l)
+ static inline void aa_put_label(struct aa_label *l)
+ {
+ 	if (l)
+-		kref_put(&l->count, aa_label_kref);
++		kref_put(&l->count.count, aa_label_kref);
+ }
+ 
+ 
+@@ -451,7 +451,7 @@ void aa_proxy_kref(struct kref *kref);
+ static inline struct aa_proxy *aa_get_proxy(struct aa_proxy *proxy)
+ {
+ 	if (proxy)
+-		kref_get(&(proxy->count));
++		kref_get(&(proxy->count.count));
+ 
+ 	return proxy;
+ }
+@@ -459,7 +459,7 @@ static inline struct aa_proxy *aa_get_proxy(struct aa_proxy *proxy)
+ static inline void aa_put_proxy(struct aa_proxy *proxy)
+ {
+ 	if (proxy)
+-		kref_put(&proxy->count, aa_proxy_kref);
++		kref_put(&proxy->count.count, aa_proxy_kref);
+ }
+ 
+ void __aa_proxy_redirect(struct aa_label *orig, struct aa_label *new);
+diff --git a/security/apparmor/include/lib.h b/security/apparmor/include/lib.h
+index fd57e9ffc13948..8901822224a4d1 100644
+--- a/security/apparmor/include/lib.h
++++ b/security/apparmor/include/lib.h
+@@ -69,6 +69,18 @@ void aa_info_message(const char *str);
+ /* Security blob offsets */
+ extern struct lsm_blob_sizes apparmor_blob_sizes;
+ 
++enum reftype {
++	REF_NS,
++	REF_PROXY,
++	REF_RAWDATA,
++};
++
++/* common reference count used by data the shows up in aafs */
++struct aa_common_ref {
++	struct kref count;
++	enum reftype reftype;
++};
++
+ /**
+  * aa_strneq - compare null terminated @str to a non null terminated substring
+  * @str: a null terminated string
+diff --git a/security/apparmor/include/match.h b/security/apparmor/include/match.h
+index 29306ec87fd1ab..611ae908469be9 100644
+--- a/security/apparmor/include/match.h
++++ b/security/apparmor/include/match.h
+@@ -190,6 +190,7 @@ static inline void aa_put_dfa(struct aa_dfa *dfa)
+ #define MATCH_FLAG_DIFF_ENCODE 0x80000000
+ #define MARK_DIFF_ENCODE 0x40000000
+ #define MATCH_FLAG_OOB_TRANSITION 0x20000000
++#define MARK_DIFF_ENCODE_VERIFIED 0x10000000
+ #define MATCH_FLAGS_MASK 0xff000000
+ #define MATCH_FLAGS_VALID (MATCH_FLAG_DIFF_ENCODE | MATCH_FLAG_OOB_TRANSITION)
+ #define MATCH_FLAGS_INVALID (MATCH_FLAGS_MASK & ~MATCH_FLAGS_VALID)
+diff --git a/security/apparmor/include/policy.h b/security/apparmor/include/policy.h
+index 639b5b248e63c7..44471bb057623b 100644
+--- a/security/apparmor/include/policy.h
++++ b/security/apparmor/include/policy.h
+@@ -247,7 +247,7 @@ static inline unsigned int PROFILE_MEDIATES_AF(struct aa_profile *profile,
+ static inline struct aa_profile *aa_get_profile(struct aa_profile *p)
+ {
+ 	if (p)
+-		kref_get(&(p->label.count));
++		kref_get(&(p->label.count.count));
+ 
+ 	return p;
+ }
+@@ -261,7 +261,7 @@ static inline struct aa_profile *aa_get_profile(struct aa_profile *p)
+  */
+ static inline struct aa_profile *aa_get_profile_not0(struct aa_profile *p)
+ {
+-	if (p && kref_get_unless_zero(&p->label.count))
++	if (p && kref_get_unless_zero(&p->label.count.count))
+ 		return p;
+ 
+ 	return NULL;
+@@ -281,7 +281,7 @@ static inline struct aa_profile *aa_get_profile_rcu(struct aa_profile __rcu **p)
+ 	rcu_read_lock();
+ 	do {
+ 		c = rcu_dereference(*p);
+-	} while (c && !kref_get_unless_zero(&c->label.count));
++	} while (c && !kref_get_unless_zero(&c->label.count.count));
+ 	rcu_read_unlock();
+ 
+ 	return c;
+@@ -294,7 +294,7 @@ static inline struct aa_profile *aa_get_profile_rcu(struct aa_profile __rcu **p)
+ static inline void aa_put_profile(struct aa_profile *p)
+ {
+ 	if (p)
+-		kref_put(&p->label.count, aa_label_kref);
++		kref_put(&p->label.count.count, aa_label_kref);
+ }
+ 
+ static inline int AUDIT_MODE(struct aa_profile *profile)
+@@ -307,8 +307,9 @@ static inline int AUDIT_MODE(struct aa_profile *profile)
+ 
+ bool aa_policy_view_capable(struct aa_label *label, struct aa_ns *ns);
+ bool aa_policy_admin_capable(struct aa_label *label, struct aa_ns *ns);
+-int aa_may_manage_policy(struct aa_label *label, struct aa_ns *ns,
+-			 u32 mask);
++int aa_may_manage_policy(const struct cred *subj_cred,
++			 struct aa_label *label, struct aa_ns *ns,
++			 const struct cred *ocred, u32 mask);
+ bool aa_current_policy_view_capable(struct aa_ns *ns);
+ bool aa_current_policy_admin_capable(struct aa_ns *ns);
+ 
+diff --git a/security/apparmor/include/policy_ns.h b/security/apparmor/include/policy_ns.h
+index 33d665516fc116..dabb69bc87e00a 100644
+--- a/security/apparmor/include/policy_ns.h
++++ b/security/apparmor/include/policy_ns.h
+@@ -18,6 +18,8 @@
+ #include "label.h"
+ #include "policy.h"
+ 
++/* Match max depth of user namespaces */
++#define MAX_NS_DEPTH 32
+ 
+ /* struct aa_ns_acct - accounting of profiles in namespace
+  * @max_size: maximum space allowed for all profiles in namespace
+diff --git a/security/apparmor/include/policy_unpack.h b/security/apparmor/include/policy_unpack.h
+index e89b701447bcb4..4d7be953724ee3 100644
+--- a/security/apparmor/include/policy_unpack.h
++++ b/security/apparmor/include/policy_unpack.h
+@@ -85,17 +85,29 @@ struct aa_ext {
+ 	u32 version;
+ };
+ 
+-/*
+- * struct aa_loaddata - buffer of policy raw_data set
++/* struct aa_loaddata - buffer of policy raw_data set
++ * @count: inode/filesystem refcount - use aa_get_i_loaddata()
++ * @pcount: profile refcount - use aa_get_profile_loaddata()
++ * @list: list the loaddata is on
++ * @work: used to do a delayed cleanup
++ * @dents: refs to dents created in aafs
++ * @ns: the namespace this loaddata was loaded into
++ * @name:
++ * @size: the size of the data that was loaded
++ * @compressed_size: the size of the data when it is compressed
++ * @revision: unique revision count that this data was loaded as
++ * @abi: the abi number the loaddata uses
++ * @hash: a hash of the loaddata, used to help dedup data
+  *
+- * there is no loaddata ref for being on ns list, nor a ref from
+- * d_inode(@dentry) when grab a ref from these, @ns->lock must be held
+- * && __aa_get_loaddata() needs to be used, and the return value
+- * checked, if NULL the loaddata is already being reaped and should be
+- * considered dead.
++ * There is no loaddata ref for being on ns->rawdata_list, so
++ * @ns->lock must be held when walking the list. Dentries and
++ * inode opens hold refs on @count; profiles hold refs on @pcount.
++ * When the last @pcount drops, do_ploaddata_rmfs() removes the
++ * fs entries and drops the associated @count ref.
+  */
+ struct aa_loaddata {
+-	struct kref count;
++	struct aa_common_ref count;
++	struct kref pcount;
+ 	struct list_head list;
+ 	struct work_struct work;
+ 	struct dentry *dents[AAFS_LOADDATA_NDENTS];
+@@ -117,50 +129,53 @@ struct aa_loaddata {
+ int aa_unpack(struct aa_loaddata *udata, struct list_head *lh, const char **ns);
+ 
+ /**
+- * __aa_get_loaddata - get a reference count to uncounted data reference
++ * aa_get_loaddata - get a reference count from a counted data reference
+  * @data: reference to get a count on
+  *
+- * Returns: pointer to reference OR NULL if race is lost and reference is
+- *          being repeated.
+- * Requires: @data->ns->lock held, and the return code MUST be checked
+- *
+- * Use only from inode->i_private and @data->list found references
++ * Returns: pointer to reference
++ * Requires: @data to have a valid reference count on it. It is a bug
++ *           if the race to reap can be encountered when it is used.
+  */
+ static inline struct aa_loaddata *
+-__aa_get_loaddata(struct aa_loaddata *data)
++aa_get_i_loaddata(struct aa_loaddata *data)
+ {
+-	if (data && kref_get_unless_zero(&(data->count)))
+-		return data;
+ 
+-	return NULL;
++	if (data)
++		kref_get(&(data->count.count));
++	return data;
+ }
+ 
++
+ /**
+- * aa_get_loaddata - get a reference count from a counted data reference
++ * aa_get_profile_loaddata - get a profile reference count on loaddata
+  * @data: reference to get a count on
+  *
+- * Returns: point to reference
+- * Requires: @data to have a valid reference count on it. It is a bug
+- *           if the race to reap can be encountered when it is used.
++ * Returns: pointer to reference
++ * Requires: @data to have a valid reference count on it.
+  */
+ static inline struct aa_loaddata *
+-aa_get_loaddata(struct aa_loaddata *data)
++aa_get_profile_loaddata(struct aa_loaddata *data)
+ {
+-	struct aa_loaddata *tmp = __aa_get_loaddata(data);
+-
+-	AA_BUG(data && !tmp);
+-
+-	return tmp;
++	if (data)
++		kref_get(&(data->pcount));
++	return data;
+ }
+ 
+ void __aa_loaddata_update(struct aa_loaddata *data, long revision);
+ bool aa_rawdata_eq(struct aa_loaddata *l, struct aa_loaddata *r);
+ void aa_loaddata_kref(struct kref *kref);
++void aa_ploaddata_kref(struct kref *kref);
+ struct aa_loaddata *aa_loaddata_alloc(size_t size);
+-static inline void aa_put_loaddata(struct aa_loaddata *data)
++static inline void aa_put_i_loaddata(struct aa_loaddata *data)
++{
++	if (data)
++		kref_put(&data->count.count, aa_loaddata_kref);
++}
++
++static inline void aa_put_profile_loaddata(struct aa_loaddata *data)
+ {
+ 	if (data)
+-		kref_put(&data->count, aa_loaddata_kref);
++		kref_put(&data->pcount, aa_ploaddata_kref);
+ }
+ 
+ #if IS_ENABLED(CONFIG_KUNIT)
+diff --git a/security/apparmor/label.c b/security/apparmor/label.c
+index a67c5897ee254e..c57c5d296b5199 100644
+--- a/security/apparmor/label.c
++++ b/security/apparmor/label.c
+@@ -52,7 +52,8 @@ static void free_proxy(struct aa_proxy *proxy)
+ 
+ void aa_proxy_kref(struct kref *kref)
+ {
+-	struct aa_proxy *proxy = container_of(kref, struct aa_proxy, count);
++	struct aa_proxy *proxy = container_of(kref, struct aa_proxy,
++					      count.count);
+ 
+ 	free_proxy(proxy);
+ }
+@@ -63,7 +64,8 @@ struct aa_proxy *aa_alloc_proxy(struct aa_label *label, gfp_t gfp)
+ 
+ 	new = kzalloc(sizeof(struct aa_proxy), gfp);
+ 	if (new) {
+-		kref_init(&new->count);
++		kref_init(&new->count.count);
++		new->count.reftype = REF_PROXY;
+ 		rcu_assign_pointer(new->label, aa_get_label(label));
+ 	}
+ 	return new;
+@@ -369,7 +371,8 @@ static void label_free_rcu(struct rcu_head *head)
+ 
+ void aa_label_kref(struct kref *kref)
+ {
+-	struct aa_label *label = container_of(kref, struct aa_label, count);
++	struct aa_label *label = container_of(kref, struct aa_label,
++					      count.count);
+ 	struct aa_ns *ns = labels_ns(label);
+ 
+ 	if (!ns) {
+@@ -406,7 +409,8 @@ bool aa_label_init(struct aa_label *label, int size, gfp_t gfp)
+ 
+ 	label->size = size;			/* doesn't include null */
+ 	label->vec[size] = NULL;		/* null terminate */
+-	kref_init(&label->count);
++	kref_init(&label->count.count);
++	label->count.reftype = REF_NS;		/* for aafs purposes */
+ 	RB_CLEAR_NODE(&label->node);
+ 
+ 	return true;
+diff --git a/security/apparmor/match.c b/security/apparmor/match.c
+index 0e683ee323e3cf..8972d1b57b7a66 100644
+--- a/security/apparmor/match.c
++++ b/security/apparmor/match.c
+@@ -204,9 +204,10 @@ static int verify_dfa(struct aa_dfa *dfa)
+ 	if (state_count == 0)
+ 		goto out;
+ 	for (i = 0; i < state_count; i++) {
+-		if (!(BASE_TABLE(dfa)[i] & MATCH_FLAG_DIFF_ENCODE) &&
+-		    (DEFAULT_TABLE(dfa)[i] >= state_count))
++		if (DEFAULT_TABLE(dfa)[i] >= state_count) {
++			pr_err("AppArmor DFA default state out of bounds");
+ 			goto out;
++		}
+ 		if (BASE_TABLE(dfa)[i] & MATCH_FLAGS_INVALID) {
+ 			pr_err("AppArmor DFA state with invalid match flags");
+ 			goto out;
+@@ -245,16 +246,31 @@ static int verify_dfa(struct aa_dfa *dfa)
+ 		size_t j, k;
+ 
+ 		for (j = i;
+-		     (BASE_TABLE(dfa)[j] & MATCH_FLAG_DIFF_ENCODE) &&
+-		     !(BASE_TABLE(dfa)[j] & MARK_DIFF_ENCODE);
++		     ((BASE_TABLE(dfa)[j] & MATCH_FLAG_DIFF_ENCODE) &&
++		      !(BASE_TABLE(dfa)[j] & MARK_DIFF_ENCODE_VERIFIED));
+ 		     j = k) {
++			if (BASE_TABLE(dfa)[j] & MARK_DIFF_ENCODE)
++				/* loop in current chain */
++				goto out;
+ 			k = DEFAULT_TABLE(dfa)[j];
+ 			if (j == k)
++				/* self loop */
+ 				goto out;
+-			if (k < j)
+-				break;		/* already verified */
+ 			BASE_TABLE(dfa)[j] |= MARK_DIFF_ENCODE;
+ 		}
++		/* move mark to verified */
++		for (j = i;
++		     (BASE_TABLE(dfa)[j] & MATCH_FLAG_DIFF_ENCODE);
++		     j = k) {
++			k = DEFAULT_TABLE(dfa)[j];
++			if (j < i)
++				/* jumps to state/chain that has been
++				 * verified
++				 */
++				break;
++			BASE_TABLE(dfa)[j] &= ~MARK_DIFF_ENCODE;
++			BASE_TABLE(dfa)[j] |= MARK_DIFF_ENCODE_VERIFIED;
++		}
+ 	}
+ 	error = 0;
+ 
+@@ -452,13 +468,18 @@ unsigned int aa_dfa_match_len(struct aa_dfa *dfa, unsigned int start,
+ 	if (dfa->tables[YYTD_ID_EC]) {
+ 		/* Equivalence class table defined */
+ 		u8 *equiv = EQUIV_TABLE(dfa);
+-		for (; len; len--)
+-			match_char(state, def, base, next, check,
+-				   equiv[(u8) *str++]);
++		for (; len; len--) {
++			u8 c = equiv[(u8) *str];
++
++			match_char(state, def, base, next, check, c);
++			str++;
++		}
+ 	} else {
+ 		/* default is direct to next state */
+-		for (; len; len--)
+-			match_char(state, def, base, next, check, (u8) *str++);
++		for (; len; len--) {
++			match_char(state, def, base, next, check, (u8) *str);
++			str++;
++		}
+ 	}
+ 
+ 	return state;
+@@ -493,13 +514,18 @@ unsigned int aa_dfa_match(struct aa_dfa *dfa, unsigned int start,
+ 		/* Equivalence class table defined */
+ 		u8 *equiv = EQUIV_TABLE(dfa);
+ 		/* default is direct to next state */
+-		while (*str)
+-			match_char(state, def, base, next, check,
+-				   equiv[(u8) *str++]);
++		while (*str) {
++			u8 c = equiv[(u8) *str];
++
++			match_char(state, def, base, next, check, c);
++			str++;
++		}
+ 	} else {
+ 		/* default is direct to next state */
+-		while (*str)
+-			match_char(state, def, base, next, check, (u8) *str++);
++		while (*str) {
++			match_char(state, def, base, next, check, (u8) *str);
++			str++;
++		}
+ 	}
+ 
+ 	return state;
+diff --git a/security/apparmor/policy.c b/security/apparmor/policy.c
+index 4ee5a450d11875..c94e7a6d64b19e 100644
+--- a/security/apparmor/policy.c
++++ b/security/apparmor/policy.c
+@@ -146,19 +146,43 @@ static void __list_remove_profile(struct aa_profile *profile)
+ }
+ 
+ /**
+- * __remove_profile - remove old profile, and children
+- * @profile: profile to be replaced  (NOT NULL)
++ * __remove_profile - remove profile, and children
++ * @profile: profile to be removed  (NOT NULL)
+  *
+  * Requires: namespace list lock be held, or list not be shared
+  */
+ static void __remove_profile(struct aa_profile *profile)
+ {
++	struct aa_profile *curr, *to_remove;
++
+ 	AA_BUG(!profile);
+ 	AA_BUG(!profile->ns);
+ 	AA_BUG(!mutex_is_locked(&profile->ns->lock));
+ 
+ 	/* release any children lists first */
+-	__aa_profile_list_release(&profile->base.profiles);
++	if (!list_empty(&profile->base.profiles)) {
++		curr = list_first_entry(&profile->base.profiles, struct aa_profile, base.list);
++
++		while (curr != profile) {
++
++			while (!list_empty(&curr->base.profiles))
++				curr = list_first_entry(&curr->base.profiles,
++							struct aa_profile, base.list);
++
++			to_remove = curr;
++			if (!list_is_last(&to_remove->base.list,
++					  &aa_deref_parent(curr)->base.profiles))
++				curr = list_next_entry(to_remove, base.list);
++			else
++				curr = aa_deref_parent(curr);
++
++			/* released by free_profile */
++			aa_label_remove(&to_remove->label);
++			__aafs_profile_rmdir(to_remove);
++			__list_remove_profile(to_remove);
++		}
++	}
++
+ 	/* released by free_profile */
+ 	aa_label_remove(&profile->label);
+ 	__aafs_profile_rmdir(profile);
+@@ -242,7 +266,7 @@ void aa_free_profile(struct aa_profile *profile)
+ 	}
+ 
+ 	kfree_sensitive(profile->hash);
+-	aa_put_loaddata(profile->rawdata);
++	aa_put_profile_loaddata(profile->rawdata);
+ 	aa_label_destroy(&profile->label);
+ 
+ 	kfree_sensitive(profile);
+@@ -712,14 +736,44 @@ bool aa_current_policy_admin_capable(struct aa_ns *ns)
+ 	return res;
+ }
+ 
++static bool is_subset_of_obj_privilege(const struct cred *cred,
++				       struct aa_label *label,
++				       const struct cred *ocred)
++{
++	if (cred == ocred)
++		return true;
++
++	if (!aa_label_is_subset(label, cred_label(ocred)))
++		return false;
++	/* don't allow crossing userns for now */
++	if (cred->user_ns != ocred->user_ns)
++		return false;
++	if (!cap_issubset(cred->cap_inheritable, ocred->cap_inheritable))
++		return false;
++	if (!cap_issubset(cred->cap_permitted, ocred->cap_permitted))
++		return false;
++	if (!cap_issubset(cred->cap_effective, ocred->cap_effective))
++		return false;
++	if (!cap_issubset(cred->cap_bset, ocred->cap_bset))
++		return false;
++	if (!cap_issubset(cred->cap_ambient, ocred->cap_ambient))
++		return false;
++	return true;
++}
++
++
+ /**
+  * aa_may_manage_policy - can the current task manage policy
++ * @subj_cred; subjects cred
+  * @label: label to check if it can manage policy
+- * @op: the policy manipulation operation being done
++ * @ns: namespace being managed by @label (may be NULL if @label's ns)
++ * @ocred: object cred if request is coming from an open object
++ * @mask: contains the policy manipulation operation being done
+  *
+  * Returns: 0 if the task is allowed to manipulate policy else error
+  */
+-int aa_may_manage_policy(struct aa_label *label, struct aa_ns *ns, u32 mask)
++int aa_may_manage_policy(const struct cred *subj_cred, struct aa_label *label,
++			 struct aa_ns *ns, const struct cred *ocred, u32 mask)
+ {
+ 	const char *op;
+ 
+@@ -735,6 +789,11 @@ int aa_may_manage_policy(struct aa_label *label, struct aa_ns *ns, u32 mask)
+ 		return audit_policy(label, op, NULL, NULL, "policy_locked",
+ 				    -EACCES);
+ 
++	if (ocred && !is_subset_of_obj_privilege(subj_cred, label, ocred))
++		return audit_policy(label, op, NULL, NULL,
++				    "not privileged for target profile",
++				    -EACCES);
++
+ 	if (!aa_policy_admin_capable(label, ns))
+ 		return audit_policy(label, op, NULL, NULL, "not policy admin",
+ 				    -EACCES);
+@@ -907,7 +966,7 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 	LIST_HEAD(lh);
+ 
+ 	op = mask & AA_MAY_REPLACE_POLICY ? OP_PROF_REPL : OP_PROF_LOAD;
+-	aa_get_loaddata(udata);
++	aa_get_profile_loaddata(udata);
+ 	/* released below */
+ 	error = aa_unpack(udata, &lh, &ns_name);
+ 	if (error)
+@@ -934,6 +993,7 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 				goto fail;
+ 			}
+ 			ns_name = ent->ns_name;
++			ent->ns_name = NULL;
+ 		} else
+ 			count++;
+ 	}
+@@ -958,10 +1018,10 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 			if (aa_rawdata_eq(rawdata_ent, udata)) {
+ 				struct aa_loaddata *tmp;
+ 
+-				tmp = __aa_get_loaddata(rawdata_ent);
++				tmp = aa_get_profile_loaddata(rawdata_ent);
+ 				/* check we didn't fail the race */
+ 				if (tmp) {
+-					aa_put_loaddata(udata);
++					aa_put_profile_loaddata(udata);
+ 					udata = tmp;
+ 					break;
+ 				}
+@@ -973,7 +1033,7 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 		struct aa_policy *policy;
+ 
+ 		if (aa_g_export_binary)
+-			ent->new->rawdata = aa_get_loaddata(udata);
++			ent->new->rawdata = aa_get_profile_loaddata(udata);
+ 		error = __lookup_replace(ns, ent->new->base.hname,
+ 					 !(mask & AA_MAY_REPLACE_POLICY),
+ 					 &ent->old, &info);
+@@ -1089,7 +1149,7 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 
+ out:
+ 	aa_put_ns(ns);
+-	aa_put_loaddata(udata);
++	aa_put_profile_loaddata(udata);
+ 	kfree(ns_name);
+ 
+ 	if (error)
+diff --git a/security/apparmor/policy_ns.c b/security/apparmor/policy_ns.c
+index 78700d94b45338..b7d9d5376aace7 100644
+--- a/security/apparmor/policy_ns.c
++++ b/security/apparmor/policy_ns.c
+@@ -262,6 +262,8 @@ static struct aa_ns *__aa_create_ns(struct aa_ns *parent, const char *name,
+ 	AA_BUG(!name);
+ 	AA_BUG(!mutex_is_locked(&parent->lock));
+ 
++	if (parent->level > MAX_NS_DEPTH)
++		return ERR_PTR(-ENOSPC);
+ 	ns = alloc_ns(parent->base.hname, name);
+ 	if (!ns)
+ 		return ERR_PTR(-ENOMEM);
+diff --git a/security/apparmor/policy_unpack.c b/security/apparmor/policy_unpack.c
+index 17601235ff982c..f0c5560e74cb91 100644
+--- a/security/apparmor/policy_unpack.c
++++ b/security/apparmor/policy_unpack.c
+@@ -112,34 +112,48 @@ bool aa_rawdata_eq(struct aa_loaddata *l, struct aa_loaddata *r)
+ 	return memcmp(l->data, r->data, r->compressed_size ?: r->size) == 0;
+ }
+ 
++static void do_loaddata_free(struct aa_loaddata *d)
++{
++	kfree_sensitive(d->hash);
++	kfree_sensitive(d->name);
++	kvfree(d->data);
++	kfree_sensitive(d);
++}
++
++void aa_loaddata_kref(struct kref *kref)
++{
++	struct aa_loaddata *d = container_of(kref, struct aa_loaddata,
++					     count.count);
++
++	do_loaddata_free(d);
++}
++
+ /*
+  * need to take the ns mutex lock which is NOT safe most places that
+  * put_loaddata is called, so we have to delay freeing it
+  */
+-static void do_loaddata_free(struct work_struct *work)
++static void do_ploaddata_rmfs(struct work_struct *work)
+ {
+ 	struct aa_loaddata *d = container_of(work, struct aa_loaddata, work);
+ 	struct aa_ns *ns = aa_get_ns(d->ns);
+ 
+ 	if (ns) {
+ 		mutex_lock_nested(&ns->lock, ns->level);
++		/* remove fs ref to loaddata */
+ 		__aa_fs_remove_rawdata(d);
+ 		mutex_unlock(&ns->lock);
+ 		aa_put_ns(ns);
+ 	}
+-
+-	kfree_sensitive(d->hash);
+-	kfree_sensitive(d->name);
+-	kvfree(d->data);
+-	kfree_sensitive(d);
++	/* called by dropping last pcount, so drop its associated icount */
++	aa_put_i_loaddata(d);
+ }
+ 
+-void aa_loaddata_kref(struct kref *kref)
++void aa_ploaddata_kref(struct kref *kref)
+ {
+-	struct aa_loaddata *d = container_of(kref, struct aa_loaddata, count);
++	struct aa_loaddata *d = container_of(kref, struct aa_loaddata, pcount);
+ 
+ 	if (d) {
+-		INIT_WORK(&d->work, do_loaddata_free);
++		INIT_WORK(&d->work, do_ploaddata_rmfs);
+ 		schedule_work(&d->work);
+ 	}
+ }
+@@ -156,7 +170,9 @@ struct aa_loaddata *aa_loaddata_alloc(size_t size)
+ 		kfree(d);
+ 		return ERR_PTR(-ENOMEM);
+ 	}
+-	kref_init(&d->count);
++	kref_init(&d->count.count);
++	d->count.reftype = REF_RAWDATA;
++	kref_init(&d->pcount);
+ 	INIT_LIST_HEAD(&d->list);
+ 
+ 	return d;
+@@ -824,9 +840,18 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
+ 			error = -EPROTO;
+ 			goto fail;
+ 		}
+-		if (!aa_unpack_u32(e, &profile->policy.start[0], "start"))
++		if (!aa_unpack_u32(e, &profile->policy.start[0], "start")) {
+ 			/* default start state */
+ 			profile->policy.start[0] = DFA_START;
++		} else {
++			size_t state_count = profile->policy.dfa->tables[YYTD_ID_BASE]->td_lolen;
++
++			if (profile->policy.start[0] >= state_count) {
++				info = "invalid dfa start state";
++				goto fail;
++			}
++		}
++
+ 		/* setup class index */
+ 		for (i = AA_CLASS_FILE; i <= AA_CLASS_LAST; i++) {
+ 			profile->policy.start[i] =
+@@ -847,9 +872,17 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
+ 		info = "failed to unpack profile file rules";
+ 		goto fail;
+ 	} else if (profile->file.dfa) {
+-		if (!aa_unpack_u32(e, &profile->file.start, "dfa_start"))
++		if (!aa_unpack_u32(e, &profile->file.start, "dfa_start")) {
+ 			/* default start state */
+ 			profile->file.start = DFA_START;
++		} else {
++			size_t state_count = profile->file.dfa->tables[YYTD_ID_BASE]->td_lolen;
++
++			if (profile->file.start >= state_count) {
++				info = "invalid dfa start state";
++				goto fail;
++			}
++		}
+ 	} else if (profile->policy.dfa &&
+ 		   profile->policy.start[AA_CLASS_FILE]) {
+ 		profile->file.dfa = aa_get_dfa(profile->policy.dfa);
+@@ -942,7 +975,6 @@ static int verify_header(struct aa_ext *e, int required, const char **ns)
+ {
+ 	int error = -EPROTONOSUPPORT;
+ 	const char *name = NULL;
+-	*ns = NULL;
+ 
+ 	/* get the interface version */
+ 	if (!aa_unpack_u32(e, &e->version, "version")) {

@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index 2a22ff32509d66..d1994bf77e8f3a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 1
+-SUBLEVEL = 136
++SUBLEVEL = 137
+ EXTRAVERSION =
+ NAME = Curry Ramen
+ 
+diff --git a/arch/loongarch/mm/hugetlbpage.c b/arch/loongarch/mm/hugetlbpage.c
+index cf3b8785a92130..70b4a51885c24b 100644
+--- a/arch/loongarch/mm/hugetlbpage.c
++++ b/arch/loongarch/mm/hugetlbpage.c
+@@ -47,7 +47,7 @@ pte_t *huge_pte_offset(struct mm_struct *mm, unsigned long addr,
+ 				pmd = pmd_offset(pud, addr);
+ 		}
+ 	}
+-	return pmd_none(pmdp_get(pmd)) ? NULL : (pte_t *) pmd;
++	return pmd_none(*pmd) ? NULL : (pte_t *) pmd;
+ }
+ 
+ /*
