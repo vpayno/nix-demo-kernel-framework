@@ -11,7 +11,15 @@ let
   ];
 
   patches_6_6-gentoo = [
+    # ./patches/6.6/1142_linux-6.6.143.patch
+
+    # ./patches/6.6/1500_ipv6-frag-escape-mitigation.patch
+    # ./patches/6.6/1502_inet-add-indirect-call-wrapper-for-getfrag-calls.patch
+    # ./patches/6.6/1503_ipv4-frag-escape-mitigation.patch
     ./patches/6.6/1510_fs-enable-link-security-restrictions-by-default.patch
+    ./patches/6.6/1525_net-rxrpc-mark-AF_RXRPC-as-BROKEN.patch
+    # ./patches/6.6/1555_can-bcm-defer-rx-op-dealloca.patch
+    ./patches/6.6/1605_crypto-nx-fix-nx-crypto-ctx-exit-arg.patch
     ./patches/6.6/1700_sparc-address-warray-bound-warnings.patch
     ./patches/6.6/1730_parisc-Disable-prctl.patch
     ./patches/6.6/1900_btrfs-dev-mapper-name-soft-link-fix.patch
@@ -19,6 +27,7 @@ let
     ./patches/6.6/2400_wifi-rtw89-88xb-firmware.patch
     ./patches/6.6/2700_ASoC_max98388_correct_includes.patch
     ./patches/6.6/2800_amdgpu-Adj-kmalloc-array-calls-for-new-Walloc-size.patch
+    ./patches/6.6/2810_media-v4l-subdev-state-comfig-media-controller-fix.patch
     ./patches/6.6/2910_bfp-mark-get-entry-ip-as--maybe-unused.patch
     ./patches/6.6/2920_sign-file-patch-for-libressl.patch
     ./patches/6.6/2931_gcc14-drm-i915-Adapt-to-Walloc-size.patch
