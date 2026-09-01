@@ -87,23 +87,40 @@
               jq
             ];
             text = ''
-              declare src_url="https://dev.gentoo.org/~mpagano/genpatches/trunk/6.6/"
-              declare data
-              declare -a patches
+              # lts kernel series
+              declare -a kernel_versions=( "5.10" "5.15" "6.1" "6.6" "6.12" "6.18" )
+              declare kernel_version
 
-              data="$(curl -sS "''${src_url}" | grep '[.]patch' | grep -v 'linux-6[.]6[.][0-9]' | sed -r -e 's;.*href="(.*)".*;\1;g')"
+              for kernel_version in "''${kernel_versions[@]}"; do
+                [[ -d ./patches/"''${kernel_version}"/ ]] || mkdir -pv ./patches/"''${kernel_version}"/
 
-              printf "Downloading the following patches:\n"
-              printf "%s\n" "''${data}"
-              printf "\n"
+                declare src_url="https://dev.gentoo.org/~mpagano/genpatches/trunk/''${kernel_version}/"
 
-              mapfile -t patches <<< "''${data}"
+                declare -a data
+                declare -a patches
 
-              for p in "''${patches[@]}"; do
-                printf "Downloading [%s]...\n" "''${src_url}''${p}"
-                curl -sS --output ./patches/6.6/"''${p}" "''${src_url}''${p}"
+                mapfile -t data <<< "$(curl -sS "''${src_url}" | grep -e '[.]patch' -e '0000_README' | sed -r -e 's;.*href="(.*)".*;\1;g')"
+
+                printf "\n"
+                printf "Downloading the following Gentoo %s kernel patches:\n" "''${kernel_version}"
+                printf "\n"
+                printf "\t%s\n" "''${data[@]}"
+                printf "\n"
+
+                read -r -a patches <<< "''${data[@]}"
+
+                for p in "''${patches[@]}"; do
+                  printf "Downloading [%s]...\n" "''${src_url}''${p}"
+                  curl -sS --output ./patches/"''${kernel_version}"/"''${p}" "''${src_url}''${p}"
+                  printf "\n"
+                done
+
+                git add ./patches/"''${kernel_version}"/
+                git commit -m "nix(overlay): update gentoo ''${kernel_version} kernel patches" ./patches/"''${kernel_version}"/ || true
                 printf "\n"
               done
+
+              printf "Finished downloading Gentoo kernel patches.\n"
             '';
           };
         };
