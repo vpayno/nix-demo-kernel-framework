@@ -1,0 +1,1116 @@
+README
+--------------------------------------------------------------------------
+This patchset is to be the series of patches for gentoo-sources.
+It is designed for cross-compatibility, fixes and stability, with performance
+and additional features/driver support being a second.
+
+Unless otherwise stated and marked as such, this kernel should be suitable for
+all environments.
+
+
+Patchset Numbering Scheme
+--------------------------------------------------------------------------
+
+FIXES
+1000-1400	linux-stable
+1400-1500	linux-stable queue
+1500-1700	security
+1700-1800	architecture-related
+1800-1900	mm/scheduling/misc
+1900-2000	filesystems
+2000-2100	networking core
+2100-2200	storage core
+2200-2300	power management (ACPI, APM)
+2300-2400	bus (USB, IEEE1394, PCI, PCMCIA, ...)
+2400-2500	network drivers
+2500-2600	storage drivers
+2600-2700	input
+2700-2900	media (graphics, sound, tv)
+2900-3000	other
+3000-4000	reserved
+
+FEATURES
+4000-4100	network
+4100-4200	storage
+4200-4300	graphics
+4300-4400	filesystem
+4400-4500   security enhancement
+4500-4600   other
+
+EXPERIMENTAL
+5000-5100   experimental patches (BFQ, ...)
+
+Individual Patch Descriptions:
+--------------------------------------------------------------------------
+
+Patch:  1000_linux-5.10.1.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.1
+
+Patch:  1001_linux-5.10.2.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.2
+
+Patch:  1002_linux-5.10.3.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.3
+
+Patch:  1003_linux-5.10.4.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.4
+
+Patch:  1004_linux-5.10.5.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.5
+
+Patch:  1005_linux-5.10.6.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.6
+
+Patch:  1006_linux-5.10.7.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.7
+
+Patch:  1007_linux-5.10.8.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.8
+
+Patch:  1008_linux-5.10.9.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.9
+
+Patch:  1009_linux-5.10.10.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.10
+
+Patch:  1010_linux-5.10.11.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.11
+
+Patch:  1011_linux-5.10.12.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.12
+
+Patch:  1012_linux-5.10.13.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.13
+
+Patch:  1013_linux-5.10.14.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.14
+
+Patch:  1014_linux-5.10.15.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.15
+
+Patch:  1015_linux-5.10.16.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.16
+
+Patch:  1016_linux-5.10.17.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.17
+
+Patch:  1017_linux-5.10.18.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.18
+
+Patch:  1018_linux-5.10.19.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.19
+
+Patch:  1019_linux-5.10.20.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.20
+
+Patch:  1020_linux-5.10.21.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.21
+
+Patch:  1021_linux-5.10.22.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.22
+
+Patch:  1022_linux-5.10.23.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.23
+
+Patch:  1023_linux-5.10.24.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.24
+
+Patch:  1024_linux-5.10.25.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.25
+
+Patch:  1025_linux-5.10.26.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.26
+
+Patch:  1026_linux-5.10.27.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.27
+
+Patch:  1027_linux-5.10.28.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.28
+
+Patch:  1028_linux-5.10.29.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.29
+
+Patch:  1029_linux-5.10.30.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.30
+
+Patch:  1030_linux-5.10.31.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.31
+
+Patch:  1031_linux-5.10.32.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.32
+
+Patch:  1032_linux-5.10.33.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.33
+
+Patch:  1033_linux-5.10.34.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.34
+
+Patch:  1034_linux-5.10.35.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.35
+
+Patch:  1035_linux-5.10.36.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.36
+
+Patch:  1036_linux-5.10.37.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.37
+
+Patch:  1037_linux-5.10.38.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.38
+
+Patch:  1038_linux-5.10.39.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.39
+
+Patch:  1039_linux-5.10.40.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.40
+
+Patch:  1040_linux-5.10.41.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.41
+
+Patch:  1041_linux-5.10.42.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.42
+
+Patch:  1042_linux-5.10.43.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.43
+
+Patch:  1043_linux-5.10.44.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.44
+
+Patch:  1044_linux-5.10.45.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.45
+
+Patch:  1045_linux-5.10.46.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.46
+
+Patch:  1046_linux-5.10.47.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.47
+
+Patch:  1047_linux-5.10.48.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.48
+
+Patch:  1048_linux-5.10.49.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.49
+
+Patch:  1049_linux-5.10.50.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.50
+
+Patch:  1050_linux-5.10.51.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.51
+
+Patch:  1051_linux-5.10.52.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.52
+
+Patch:  1052_linux-5.10.53.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.53
+
+Patch:  1053_linux-5.10.54.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.54
+
+Patch:  1054_linux-5.10.55.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.55
+
+Patch:  1055_linux-5.10.56.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.56
+
+Patch:  1056_linux-5.10.57.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.57
+
+Patch:  1057_linux-5.10.58.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.58
+
+Patch:  1058_linux-5.10.59.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.59
+
+Patch:  1059_linux-5.10.60.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.60
+
+Patch:  1060_linux-5.10.61.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.61
+
+Patch:  1061_linux-5.10.62.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.62
+
+Patch:  1062_linux-5.10.63.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.63
+
+Patch:  1063_linux-5.10.64.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.64
+
+Patch:  1064_linux-5.10.65.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.65
+
+Patch:  1065_linux-5.10.66.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.66
+
+Patch:  1066_linux-5.10.67.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.67
+
+Patch:  1067_linux-5.10.68.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.68
+
+Patch:  1068_linux-5.10.69.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.69
+
+Patch:  1069_linux-5.10.70.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.70
+
+Patch:  1070_linux-5.10.71.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.71
+
+Patch:  1071_linux-5.10.72.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.72
+
+Patch:  1072_linux-5.10.73.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.73
+
+Patch:  1073_linux-5.10.74.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.74
+
+Patch:  1074_linux-5.10.75.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.75
+
+Patch:  1075_linux-5.10.76.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.76
+
+Patch:  1076_linux-5.10.77.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.77
+
+Patch:  1077_linux-5.10.78.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.78
+
+Patch:  1078_linux-5.10.79.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.79
+
+Patch:  1079_linux-5.10.80.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.80
+
+Patch:  1080_linux-5.10.81.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.81
+
+Patch:  1081_linux-5.10.82.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.82
+
+Patch:  1082_linux-5.10.83.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.83
+
+Patch:  1083_linux-5.10.84.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.84
+
+Patch:  1084_linux-5.10.85.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.85
+
+Patch:  1085_linux-5.10.86.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.86
+
+Patch:  1086_linux-5.10.87.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.87
+
+Patch:  1087_linux-5.10.88.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.88
+
+Patch:  1088_linux-5.10.89.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.89
+
+Patch:  1089_linux-5.10.90.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.90
+
+Patch:  1090_linux-5.10.91.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.91
+
+Patch:  1091_linux-5.10.92.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.92
+
+Patch:  1092_linux-5.10.93.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.93
+
+Patch:  1093_linux-5.10.94.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.94
+
+Patch:  1094_linux-5.10.95.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.95
+
+Patch:  1095_linux-5.10.96.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.96
+
+Patch:  1096_linux-5.10.97.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.97
+
+Patch:  1097_linux-5.10.98.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.98
+
+Patch:  1098_linux-5.10.99.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.99
+
+Patch:  1099_linux-5.10.100.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.100
+
+Patch:  1100_linux-5.10.101.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.101
+
+Patch:  1101_linux-5.10.102.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.102
+
+Patch:  1102_linux-5.10.103.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.103
+
+Patch:  1103_linux-5.10.104.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.104
+
+Patch:  1104_linux-5.10.105.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.105
+
+Patch:  1105_linux-5.10.106.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.106
+
+Patch:  1106_linux-5.10.107.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.107
+
+Patch:  1107_linux-5.10.108.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.108
+
+Patch:  1108_linux-5.10.109.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.109
+
+Patch:  1109_linux-5.10.110.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.110
+
+Patch:  1110_linux-5.10.111.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.111
+
+Patch:  1111_linux-5.10.112.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.112
+
+Patch:  1112_linux-5.10.113.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.113
+
+Patch:  1113_linux-5.10.114.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.114
+
+Patch:  1114_linux-5.10.115.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.115
+
+Patch:  1115_linux-5.10.116.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.116
+
+Patch:  1116_linux-5.10.117.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.117
+
+Patch:  1117_linux-5.10.118.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.118
+
+Patch:  1118_linux-5.10.119.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.119
+
+Patch:  1119_linux-5.10.120.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.120
+
+Patch:  1120_linux-5.10.121.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.121
+
+Patch:  1121_linux-5.10.122.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.122
+
+Patch:  1122_linux-5.10.123.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.123
+
+Patch:  1123_linux-5.10.124.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.124
+
+Patch:  1124_linux-5.10.125.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.125
+
+Patch:  1125_linux-5.10.126.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.126
+
+Patch:  1126_linux-5.10.127.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.127
+
+Patch:  1127_linux-5.10.128.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.128
+
+Patch:  1128_linux-5.10.129.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.129
+
+Patch:  1129_linux-5.10.130.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.130
+
+Patch:  1130_linux-5.10.131.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.131
+
+Patch:  1131_linux-5.10.132.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.132
+
+Patch:  1132_linux-5.10.133.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.133
+
+Patch:  1133_linux-5.10.134.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.134
+
+Patch:  1134_linux-5.10.135.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.135
+
+Patch:  1135_linux-5.10.136.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.136
+
+Patch:  1136_linux-5.10.137.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.137
+
+Patch:  1137_linux-5.10.138.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.138
+
+Patch:  1138_linux-5.10.139.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.139
+
+Patch:  1139_linux-5.10.140.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.140
+
+Patch:  1140_linux-5.10.141.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.141
+
+Patch:  1141_linux-5.10.142.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.142
+
+Patch:  1142_linux-5.10.143.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.143
+
+Patch:  1143_linux-5.10.144.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.144
+
+Patch:  1144_linux-5.10.145.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.145
+
+Patch:  1145_linux-5.10.146.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.146
+
+Patch:  1146_linux-5.10.147.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.147
+
+Patch:  1147_linux-5.10.148.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.148
+
+Patch:  1148_linux-5.10.149.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.149
+
+Patch:  1149_linux-5.10.150.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.150
+
+Patch:  1150_linux-5.10.151.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.151
+
+Patch:  1151_linux-5.10.152.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.152
+
+Patch:  1152_linux-5.10.153.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.153
+
+Patch:  1153_linux-5.10.154.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.154
+
+Patch:  1154_linux-5.10.155.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.155
+
+Patch:  1155_linux-5.10.156.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.156
+
+Patch:  1156_linux-5.10.157.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.157
+
+Patch:  1157_linux-5.10.158.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.158
+
+Patch:  1158_linux-5.10.159.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.159
+
+Patch:  1159_linux-5.10.160.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.160
+
+Patch:  1160_linux-5.10.161.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.161
+
+Patch:  1161_linux-5.10.162.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.162
+
+Patch:  1162_linux-5.10.163.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.163
+
+Patch:  1163_linux-5.10.164.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.164
+
+Patch:  1164_linux-5.10.165.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.165
+
+Patch:  1165_linux-5.10.166.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.166
+
+Patch:  1166_linux-5.10.167.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.167
+
+Patch:  1167_linux-5.10.168.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.168
+
+Patch:  1168_linux-5.10.169.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.169
+
+Patch:  1169_linux-5.10.170.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.170
+
+Patch:  1170_linux-5.10.171.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.171
+
+Patch:  1171_linux-5.10.172.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.172
+
+Patch:  1172_linux-5.10.173.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.173
+
+Patch:  1173_linux-5.10.174.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.174
+
+Patch:  1174_linux-5.10.175.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.175
+
+Patch:  1175_linux-5.10.176.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.176
+
+Patch:  1176_linux-5.10.177.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.177
+
+Patch:  1177_linux-5.10.178.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.178
+
+Patch:  1178_linux-5.10.179.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.179
+
+Patch:  1179_linux-5.10.180.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.180
+
+Patch:  1180_linux-5.10.181.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.181
+
+Patch:  1181_linux-5.10.182.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.182
+
+Patch:  1182_linux-5.10.183.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.183
+
+Patch:  1183_linux-5.10.184.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.184
+
+Patch:  1184_linux-5.10.185.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.185
+
+Patch:  1185_linux-5.10.186.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.186
+
+Patch:  1186_linux-5.10.187.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.187
+
+Patch:  1187_linux-5.10.188.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.188
+
+Patch:  1188_linux-5.10.189.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.189
+
+Patch:  1189_linux-5.10.190.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.190
+
+Patch:  1190_linux-5.10.191.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.191
+
+Patch:  1191_linux-5.10.192.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.192
+
+Patch:  1192_linux-5.10.193.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.193
+
+Patch:  1193_linux-5.10.194.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.194
+
+Patch:  1194_linux-5.10.195.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.195
+
+Patch:  1195_linux-5.10.196.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.196
+
+Patch:  1196_linux-5.10.197.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.197
+
+Patch:  1197_linux-5.10.198.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.198
+
+Patch:  1198_linux-5.10.199.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.199
+
+Patch:  1199_linux-5.10.200.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.200
+
+Patch:  1200_linux-5.10.201.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.201
+
+Patch:  1201_linux-5.10.202.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.202
+
+Patch:  1202_linux-5.10.203.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.203
+
+Patch:  1203_linux-5.10.204.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.204
+
+Patch:  1204_linux-5.10.205.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.205
+
+Patch:  1205_linux-5.10.206.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.206
+
+Patch:  1206_linux-5.10.207.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.207
+
+Patch:  1207_linux-5.10.208.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.208
+
+Patch:  1208_linux-5.10.209.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.209
+
+Patch:  1209_linux-5.10.210.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.210
+
+Patch:  1210_linux-5.10.211.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.211
+
+Patch:  1211_linux-5.10.212.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.212
+
+Patch:  1212_linux-5.10.213.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.213
+
+Patch:  1213_linux-5.10.214.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.214
+
+Patch:  1214_linux-5.10.215.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.215
+
+Patch:  1215_linux-5.10.216.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.216
+
+Patch:  1216_linux-5.10.217.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.217
+
+Patch:  1217_linux-5.10.218.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.218
+
+Patch:  1218_linux-5.10.219.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.219
+
+Patch:  1219_linux-5.10.220.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.220
+
+Patch:  1220_linux-5.10.221.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.221
+
+Patch:  1221_linux-5.10.222.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.222
+
+Patch:  1222_linux-5.10.223.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.223
+
+Patch:  1223_linux-5.10.224.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.224
+
+Patch:  1224_linux-5.10.225.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.225
+
+Patch:  1225_linux-5.10.226.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.226
+
+Patch:  1226_linux-5.10.227.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.227
+
+Patch:  1227_linux-5.10.228.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.228
+
+Patch:  1228_linux-5.10.229.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.229
+
+Patch:  1229_linux-5.10.230.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.230
+
+Patch:  1230_linux-5.10.231.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.231
+
+Patch:  1231_linux-5.10.232.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.232
+
+Patch:  1232_linux-5.10.233.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.233
+
+Patch:  1233_linux-5.10.234.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.234
+
+Patch:  1234_linux-5.10.235.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.235
+
+Patch:  1235_linux-5.10.236.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.236
+
+Patch:  1236_linux-5.10.237.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.237
+
+Patch:  1237_linux-5.10.238.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.238
+
+Patch:  1238_linux-5.10.239.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.239
+
+Patch:  1239_linux-5.10.240.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.240
+
+Patch:  1240_linux-5.10.241.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.241
+
+Patch:  1241_linux-5.10.242.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.242
+
+Patch:  1242_linux-5.10.243.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.243
+
+Patch:  1243_linux-5.10.244.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.244
+
+Patch:  1244_linux-5.10.245.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.245
+
+Patch:  1245_linux-5.10.246.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.246
+
+Patch:  1246_linux-5.10.247.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.247
+
+Patch:  1247_linux-5.10.248.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.248
+
+Patch:  1248_linux-5.10.249.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.249
+
+Patch:  1249_linux-5.10.250.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.250
+
+Patch:  1250_linux-5.10.251.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.251
+
+Patch:  1251_linux-5.10.252.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.252
+
+Patch:  1252_linux-5.10.253.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.253
+
+Patch:  1253_linux-5.10.254.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.254
+
+Patch:  1254_linux-5.10.255.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.255
+
+Patch:  1255_linux-5.10.256.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.256
+
+Patch:  1256_linux-5.10.257.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.257
+
+Patch:  1257_linux-5.10.258.patch
+From:   https://www.kernel.org
+Desc:   Linux 5.10.258
+
+Patch:  1500_XATTR_USER_PREFIX.patch
+From:   https://bugs.gentoo.org/show_bug.cgi?id=470644
+Desc:   Support for namespace user.pax.* on tmpfs.
+
+Patch:  1510_fs-enable-link-security-restrictions-by-default.patch
+From:   http://sources.debian.net/src/linux/3.16.7-ckt4-3/debian/patches/debian/fs-enable-link-security-restrictions-by-default.patch/
+Desc:   Enable link security restrictions by default.
+
+Patch:  1525_net-rxrpc-mark-AF_RXRPC-as-BROKEN.patch
+From:   https://bugs.gentoo.org/974307
+Desc:   net/rxrpc: mark AF_RXRPC as BROKEN (and reverse dependencies)
+
+Patch:  2000_BT-Check-key-sizes-only-if-Secure-Simple-Pairing-enabled.patch
+From:   https://lore.kernel.org/linux-bluetooth/20190522070540.48895-1-marcel@holtmann.org/raw
+Desc:   Bluetooth: Check key sizes only when Secure Simple Pairing is enabled. See bug #686758
+
+Patch:  2010_Fix_randomize_layout_crash_in_struct_neigh.patch
+From:   https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git/commit/?id=45b3fae4675d
+Desc:   neighbour: Fix __randomize_layout crash in struct neighbour
+
+Patch:  2920_sign-file-patch-for-libressl.patch
+From:   https://bugs.gentoo.org/717166
+Desc:   sign-file: full functionality with modern LibreSSL
+
+Patch:  2940_gcc-plugins-drop-std-gnu-plus-plus-to-fix-GCC-13-build.patch
+From:   https://lore.kernel.org/all/20230201230009.2252783-1-sam@gentoo.org/
+Desc:   gcc-plugins: drop -std=gnu++11 to fix GCC 13 build
+
+Patch:  3000_Support-printing-firmware-info.patch
+From:   https://bugs.gentoo.org/732852
+Desc:   Print firmware info (Reqs CONFIG_GENTOO_PRINT_FIRMWARE_INFO). Thanks to Georgy Yakovlev
+
+Patch:  4567_distro-Gentoo-Kconfig.patch
+From:   Tom Wijsman <TomWij@gentoo.org>
+Desc:   Add Gentoo Linux support config settings and defaults.
+
+Patch:  5000_shiftfs-ubuntu-20.04.patch
+From:   https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/focal
+Desc:   UID/GID shifting overlay filesystem for containers 

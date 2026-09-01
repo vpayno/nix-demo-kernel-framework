@@ -1,0 +1,11 @@
+--- a/include/net/neighbour.h	2023-12-01 12:42:53.249733734 -0500
++++ b/include/net/neighbour.h	2023-12-01 12:43:07.539739154 -0500
+@@ -157,7 +157,7 @@ struct neighbour {
+ 	struct list_head	gc_list;
+ 	struct rcu_head		rcu;
+ 	struct net_device	*dev;
+-	u8			primary_key[0];
++	u8			primary_key[];
+ } __randomize_layout;
+ 
+ struct neigh_ops {
