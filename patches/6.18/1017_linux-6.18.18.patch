@@ -1,0 +1,1861 @@
+diff --git a/Makefile b/Makefile
+index 8cffe2446616ca..82972256a8426f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 18
+-SUBLEVEL = 17
++SUBLEVEL = 18
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/drivers/ata/libata-eh.c b/drivers/ata/libata-eh.c
+index 44fddfbb762961..23be85418b3b1d 100644
+--- a/drivers/ata/libata-eh.c
++++ b/drivers/ata/libata-eh.c
+@@ -659,6 +659,7 @@ void ata_scsi_cmd_error_handler(struct Scsi_Host *host, struct ata_port *ap,
+ 			 */
+ 			WARN_ON_ONCE(qc->flags & ATA_QCFLAG_ACTIVE);
+ 			ap->deferred_qc = NULL;
++			cancel_work(&ap->deferred_qc_work);
+ 			set_host_byte(scmd, DID_TIME_OUT);
+ 			scsi_eh_finish_cmd(scmd, &ap->eh_done_q);
+ 		} else if (i < ATA_MAX_QUEUE) {
+diff --git a/drivers/ata/libata-scsi.c b/drivers/ata/libata-scsi.c
+index 5dc9586d9724e4..a70d98405a7973 100644
+--- a/drivers/ata/libata-scsi.c
++++ b/drivers/ata/libata-scsi.c
+@@ -1698,6 +1698,7 @@ void ata_scsi_requeue_deferred_qc(struct ata_port *ap)
+ 
+ 	scmd = qc->scsicmd;
+ 	ap->deferred_qc = NULL;
++	cancel_work(&ap->deferred_qc_work);
+ 	ata_qc_free(qc);
+ 	scmd->result = (DID_SOFT_ERROR << 16);
+ 	scsi_done(scmd);
+diff --git a/include/net/act_api.h b/include/net/act_api.h
+index 91a24b5e0b93e4..2ba40eb45aad2f 100644
+--- a/include/net/act_api.h
++++ b/include/net/act_api.h
+@@ -70,6 +70,7 @@ struct tc_action {
+ #define TCA_ACT_FLAGS_REPLACE	(1U << (TCA_ACT_FLAGS_USER_BITS + 2))
+ #define TCA_ACT_FLAGS_NO_RTNL	(1U << (TCA_ACT_FLAGS_USER_BITS + 3))
+ #define TCA_ACT_FLAGS_AT_INGRESS	(1U << (TCA_ACT_FLAGS_USER_BITS + 4))
++#define TCA_ACT_FLAGS_AT_INGRESS_OR_CLSACT	(1U << (TCA_ACT_FLAGS_USER_BITS + 5))
+ 
+ /* Update lastuse only if needed, to avoid dirtying a cache line.
+  * We use a temp variable to avoid fetching jiffies twice.
+diff --git a/include/net/tc_act/tc_gate.h b/include/net/tc_act/tc_gate.h
+index c1a67149c6b625..5223c00279d5a2 100644
+--- a/include/net/tc_act/tc_gate.h
++++ b/include/net/tc_act/tc_gate.h
+@@ -32,6 +32,7 @@ struct tcf_gate_params {
+ 	s32			tcfg_clockid;
+ 	size_t			num_entries;
+ 	struct list_head	entries;
++	struct rcu_head		rcu;
+ };
+ 
+ #define GATE_ACT_GATE_OPEN	BIT(0)
+@@ -39,7 +40,7 @@ struct tcf_gate_params {
+ 
+ struct tcf_gate {
+ 	struct tc_action	common;
+-	struct tcf_gate_params	param;
++	struct tcf_gate_params __rcu *param;
+ 	u8			current_gate_status;
+ 	ktime_t			current_close_time;
+ 	u32			current_entry_octets;
+@@ -51,47 +52,65 @@ struct tcf_gate {
+ 
+ #define to_gate(a) ((struct tcf_gate *)a)
+ 
++static inline struct tcf_gate_params *tcf_gate_params_locked(const struct tc_action *a)
++{
++	struct tcf_gate *gact = to_gate(a);
++
++	return rcu_dereference_protected(gact->param,
++					 lockdep_is_held(&gact->tcf_lock));
++}
++
+ static inline s32 tcf_gate_prio(const struct tc_action *a)
+ {
++	struct tcf_gate_params *p;
+ 	s32 tcfg_prio;
+ 
+-	tcfg_prio = to_gate(a)->param.tcfg_priority;
++	p = tcf_gate_params_locked(a);
++	tcfg_prio = p->tcfg_priority;
+ 
+ 	return tcfg_prio;
+ }
+ 
+ static inline u64 tcf_gate_basetime(const struct tc_action *a)
+ {
++	struct tcf_gate_params *p;
+ 	u64 tcfg_basetime;
+ 
+-	tcfg_basetime = to_gate(a)->param.tcfg_basetime;
++	p = tcf_gate_params_locked(a);
++	tcfg_basetime = p->tcfg_basetime;
+ 
+ 	return tcfg_basetime;
+ }
+ 
+ static inline u64 tcf_gate_cycletime(const struct tc_action *a)
+ {
++	struct tcf_gate_params *p;
+ 	u64 tcfg_cycletime;
+ 
+-	tcfg_cycletime = to_gate(a)->param.tcfg_cycletime;
++	p = tcf_gate_params_locked(a);
++	tcfg_cycletime = p->tcfg_cycletime;
+ 
+ 	return tcfg_cycletime;
+ }
+ 
+ static inline u64 tcf_gate_cycletimeext(const struct tc_action *a)
+ {
++	struct tcf_gate_params *p;
+ 	u64 tcfg_cycletimeext;
+ 
+-	tcfg_cycletimeext = to_gate(a)->param.tcfg_cycletime_ext;
++	p = tcf_gate_params_locked(a);
++	tcfg_cycletimeext = p->tcfg_cycletime_ext;
+ 
+ 	return tcfg_cycletimeext;
+ }
+ 
+ static inline u32 tcf_gate_num_entries(const struct tc_action *a)
+ {
++	struct tcf_gate_params *p;
+ 	u32 num_entries;
+ 
+-	num_entries = to_gate(a)->param.num_entries;
++	p = tcf_gate_params_locked(a);
++	num_entries = p->num_entries;
+ 
+ 	return num_entries;
+ }
+@@ -105,7 +124,7 @@ static inline struct action_gate_entry
+ 	u32 num_entries;
+ 	int i = 0;
+ 
+-	p = &to_gate(a)->param;
++	p = tcf_gate_params_locked(a);
+ 	num_entries = p->num_entries;
+ 
+ 	list_for_each_entry(entry, &p->entries, list)
+diff --git a/net/sched/act_ct.c b/net/sched/act_ct.c
+index 6749a4a9a9cd0a..b3c160ad590d28 100644
+--- a/net/sched/act_ct.c
++++ b/net/sched/act_ct.c
+@@ -1358,6 +1358,12 @@ static int tcf_ct_init(struct net *net, struct nlattr *nla,
+ 		return -EINVAL;
+ 	}
+ 
++	if (bind && !(flags & TCA_ACT_FLAGS_AT_INGRESS_OR_CLSACT)) {
++		NL_SET_ERR_MSG_MOD(extack,
++				   "Attaching ct to a non ingress/clsact qdisc is unsupported");
++		return -EOPNOTSUPP;
++	}
++
+ 	err = nla_parse_nested(tb, TCA_CT_MAX, nla, ct_policy, extack);
+ 	if (err < 0)
+ 		return err;
+diff --git a/net/sched/act_gate.c b/net/sched/act_gate.c
+index c1f75f2727576f..d09013ae1892af 100644
+--- a/net/sched/act_gate.c
++++ b/net/sched/act_gate.c
+@@ -32,9 +32,12 @@ static ktime_t gate_get_time(struct tcf_gate *gact)
+ 	return KTIME_MAX;
+ }
+ 
+-static void gate_get_start_time(struct tcf_gate *gact, ktime_t *start)
++static void tcf_gate_params_free_rcu(struct rcu_head *head);
++
++static void gate_get_start_time(struct tcf_gate *gact,
++				const struct tcf_gate_params *param,
++				ktime_t *start)
+ {
+-	struct tcf_gate_params *param = &gact->param;
+ 	ktime_t now, base, cycle;
+ 	u64 n;
+ 
+@@ -69,12 +72,14 @@ static enum hrtimer_restart gate_timer_func(struct hrtimer *timer)
+ {
+ 	struct tcf_gate *gact = container_of(timer, struct tcf_gate,
+ 					     hitimer);
+-	struct tcf_gate_params *p = &gact->param;
+ 	struct tcfg_gate_entry *next;
++	struct tcf_gate_params *p;
+ 	ktime_t close_time, now;
+ 
+ 	spin_lock(&gact->tcf_lock);
+ 
++	p = rcu_dereference_protected(gact->param,
++				      lockdep_is_held(&gact->tcf_lock));
+ 	next = gact->next_entry;
+ 
+ 	/* cycle start, clear pending bit, clear total octets */
+@@ -225,6 +230,35 @@ static void release_entry_list(struct list_head *entries)
+ 	}
+ }
+ 
++static int tcf_gate_copy_entries(struct tcf_gate_params *dst,
++				 const struct tcf_gate_params *src,
++				 struct netlink_ext_ack *extack)
++{
++	struct tcfg_gate_entry *entry;
++	int i = 0;
++
++	list_for_each_entry(entry, &src->entries, list) {
++		struct tcfg_gate_entry *new;
++
++		new = kzalloc(sizeof(*new), GFP_ATOMIC);
++		if (!new) {
++			NL_SET_ERR_MSG(extack, "Not enough memory for entry");
++			return -ENOMEM;
++		}
++
++		new->index      = entry->index;
++		new->gate_state = entry->gate_state;
++		new->interval   = entry->interval;
++		new->ipv        = entry->ipv;
++		new->maxoctets  = entry->maxoctets;
++		list_add_tail(&new->list, &dst->entries);
++		i++;
++	}
++
++	dst->num_entries = i;
++	return 0;
++}
++
+ static int parse_gate_list(struct nlattr *list_attr,
+ 			   struct tcf_gate_params *sched,
+ 			   struct netlink_ext_ack *extack)
+@@ -270,24 +304,44 @@ release_list:
+ 	return err;
+ }
+ 
+-static void gate_setup_timer(struct tcf_gate *gact, u64 basetime,
+-			     enum tk_offsets tko, s32 clockid,
+-			     bool do_init)
++static bool gate_timer_needs_cancel(u64 basetime, u64 old_basetime,
++				    enum tk_offsets tko,
++				    enum tk_offsets old_tko,
++				    s32 clockid, s32 old_clockid)
+ {
+-	if (!do_init) {
+-		if (basetime == gact->param.tcfg_basetime &&
+-		    tko == gact->tk_offset &&
+-		    clockid == gact->param.tcfg_clockid)
+-			return;
++	return basetime != old_basetime ||
++	       clockid != old_clockid ||
++	       tko != old_tko;
++}
+ 
+-		spin_unlock_bh(&gact->tcf_lock);
+-		hrtimer_cancel(&gact->hitimer);
+-		spin_lock_bh(&gact->tcf_lock);
++static int gate_clock_resolve(s32 clockid, enum tk_offsets *tko,
++			      struct netlink_ext_ack *extack)
++{
++	switch (clockid) {
++	case CLOCK_REALTIME:
++		*tko = TK_OFFS_REAL;
++		return 0;
++	case CLOCK_MONOTONIC:
++		*tko = TK_OFFS_MAX;
++		return 0;
++	case CLOCK_BOOTTIME:
++		*tko = TK_OFFS_BOOT;
++		return 0;
++	case CLOCK_TAI:
++		*tko = TK_OFFS_TAI;
++		return 0;
++	default:
++		NL_SET_ERR_MSG(extack, "Invalid 'clockid'");
++		return -EINVAL;
+ 	}
+-	gact->param.tcfg_basetime = basetime;
+-	gact->param.tcfg_clockid = clockid;
+-	gact->tk_offset = tko;
+-	hrtimer_setup(&gact->hitimer, gate_timer_func, clockid, HRTIMER_MODE_ABS_SOFT);
++}
++
++static void gate_setup_timer(struct tcf_gate *gact, s32 clockid,
++			     enum tk_offsets tko)
++{
++	WRITE_ONCE(gact->tk_offset, tko);
++	hrtimer_setup(&gact->hitimer, gate_timer_func, clockid,
++		      HRTIMER_MODE_ABS_SOFT);
+ }
+ 
+ static int tcf_gate_init(struct net *net, struct nlattr *nla,
+@@ -296,15 +350,22 @@ static int tcf_gate_init(struct net *net, struct nlattr *nla,
+ 			 struct netlink_ext_ack *extack)
+ {
+ 	struct tc_action_net *tn = net_generic(net, act_gate_ops.net_id);
+-	enum tk_offsets tk_offset = TK_OFFS_TAI;
++	u64 cycletime = 0, basetime = 0, cycletime_ext = 0;
++	struct tcf_gate_params *p = NULL, *old_p = NULL;
++	enum tk_offsets old_tk_offset = TK_OFFS_TAI;
++	const struct tcf_gate_params *cur_p = NULL;
+ 	bool bind = flags & TCA_ACT_FLAGS_BIND;
+ 	struct nlattr *tb[TCA_GATE_MAX + 1];
++	enum tk_offsets tko = TK_OFFS_TAI;
+ 	struct tcf_chain *goto_ch = NULL;
+-	u64 cycletime = 0, basetime = 0;
+-	struct tcf_gate_params *p;
++	s32 timer_clockid = CLOCK_TAI;
++	bool use_old_entries = false;
++	s32 old_clockid = CLOCK_TAI;
++	bool need_cancel = false;
+ 	s32 clockid = CLOCK_TAI;
+ 	struct tcf_gate *gact;
+ 	struct tc_gate *parm;
++	u64 old_basetime = 0;
+ 	int ret = 0, err;
+ 	u32 gflags = 0;
+ 	s32 prio = -1;
+@@ -321,26 +382,8 @@ static int tcf_gate_init(struct net *net, struct nlattr *nla,
+ 	if (!tb[TCA_GATE_PARMS])
+ 		return -EINVAL;
+ 
+-	if (tb[TCA_GATE_CLOCKID]) {
++	if (tb[TCA_GATE_CLOCKID])
+ 		clockid = nla_get_s32(tb[TCA_GATE_CLOCKID]);
+-		switch (clockid) {
+-		case CLOCK_REALTIME:
+-			tk_offset = TK_OFFS_REAL;
+-			break;
+-		case CLOCK_MONOTONIC:
+-			tk_offset = TK_OFFS_MAX;
+-			break;
+-		case CLOCK_BOOTTIME:
+-			tk_offset = TK_OFFS_BOOT;
+-			break;
+-		case CLOCK_TAI:
+-			tk_offset = TK_OFFS_TAI;
+-			break;
+-		default:
+-			NL_SET_ERR_MSG(extack, "Invalid 'clockid'");
+-			return -EINVAL;
+-		}
+-	}
+ 
+ 	parm = nla_data(tb[TCA_GATE_PARMS]);
+ 	index = parm->index;
+@@ -366,6 +409,60 @@ static int tcf_gate_init(struct net *net, struct nlattr *nla,
+ 		return -EEXIST;
+ 	}
+ 
++	gact = to_gate(*a);
++
++	err = tcf_action_check_ctrlact(parm->action, tp, &goto_ch, extack);
++	if (err < 0)
++		goto release_idr;
++
++	p = kzalloc(sizeof(*p), GFP_KERNEL);
++	if (!p) {
++		err = -ENOMEM;
++		goto chain_put;
++	}
++	INIT_LIST_HEAD(&p->entries);
++
++	use_old_entries = !tb[TCA_GATE_ENTRY_LIST];
++	if (!use_old_entries) {
++		err = parse_gate_list(tb[TCA_GATE_ENTRY_LIST], p, extack);
++		if (err < 0)
++			goto err_free;
++		use_old_entries = !err;
++	}
++
++	if (ret == ACT_P_CREATED && use_old_entries) {
++		NL_SET_ERR_MSG(extack, "The entry list is empty");
++		err = -EINVAL;
++		goto err_free;
++	}
++
++	if (ret != ACT_P_CREATED) {
++		rcu_read_lock();
++		cur_p = rcu_dereference(gact->param);
++
++		old_basetime  = cur_p->tcfg_basetime;
++		old_clockid   = cur_p->tcfg_clockid;
++		old_tk_offset = READ_ONCE(gact->tk_offset);
++
++		basetime      = old_basetime;
++		cycletime_ext = cur_p->tcfg_cycletime_ext;
++		prio          = cur_p->tcfg_priority;
++		gflags        = cur_p->tcfg_flags;
++
++		if (!tb[TCA_GATE_CLOCKID])
++			clockid = old_clockid;
++
++		err = 0;
++		if (use_old_entries) {
++			err = tcf_gate_copy_entries(p, cur_p, extack);
++			if (!err && !tb[TCA_GATE_CYCLE_TIME])
++				cycletime = cur_p->tcfg_cycletime;
++		}
++		rcu_read_unlock();
++		if (err)
++			goto err_free;
++	}
++
+ 	if (tb[TCA_GATE_PRIORITY])
+ 		prio = nla_get_s32(tb[TCA_GATE_PRIORITY]);
+ 
+@@ -375,25 +472,26 @@ static int tcf_gate_init(struct net *net, struct nlattr *nla,
+ 	if (tb[TCA_GATE_FLAGS])
+ 		gflags = nla_get_u32(tb[TCA_GATE_FLAGS]);
+ 
+-	gact = to_gate(*a);
+-	if (ret == ACT_P_CREATED)
+-		INIT_LIST_HEAD(&gact->param.entries);
++	if (tb[TCA_GATE_CYCLE_TIME])
++		cycletime = nla_get_u64(tb[TCA_GATE_CYCLE_TIME]);
+ 
+-	err = tcf_action_check_ctrlact(parm->action, tp, &goto_ch, extack);
+-	if (err < 0)
+-		goto release_idr;
++	if (tb[TCA_GATE_CYCLE_TIME_EXT])
++		cycletime_ext = nla_get_u64(tb[TCA_GATE_CYCLE_TIME_EXT]);
+ 
+-	spin_lock_bh(&gact->tcf_lock);
+-	p = &gact->param;
++	err = gate_clock_resolve(clockid, &tko, extack);
++	if (err)
++		goto err_free;
++	timer_clockid = clockid;
+ 
+-	if (tb[TCA_GATE_CYCLE_TIME])
+-		cycletime = nla_get_u64(tb[TCA_GATE_CYCLE_TIME]);
++	need_cancel = ret != ACT_P_CREATED &&
++		      gate_timer_needs_cancel(basetime, old_basetime,
++					      tko, old_tk_offset,
++					      timer_clockid, old_clockid);
+ 
+-	if (tb[TCA_GATE_ENTRY_LIST]) {
+-		err = parse_gate_list(tb[TCA_GATE_ENTRY_LIST], p, extack);
+-		if (err < 0)
+-			goto chain_put;
+-	}
++	if (need_cancel)
++		hrtimer_cancel(&gact->hitimer);
++
++	spin_lock_bh(&gact->tcf_lock);
+ 
+ 	if (!cycletime) {
+ 		struct tcfg_gate_entry *entry;
+@@ -402,22 +500,20 @@ static int tcf_gate_init(struct net *net, struct nlattr *nla,
+ 		list_for_each_entry(entry, &p->entries, list)
+ 			cycle = ktime_add_ns(cycle, entry->interval);
+ 		cycletime = cycle;
+-		if (!cycletime) {
+-			err = -EINVAL;
+-			goto chain_put;
+-		}
+ 	}
+ 	p->tcfg_cycletime = cycletime;
++	p->tcfg_cycletime_ext = cycletime_ext;
+ 
+-	if (tb[TCA_GATE_CYCLE_TIME_EXT])
+-		p->tcfg_cycletime_ext =
+-			nla_get_u64(tb[TCA_GATE_CYCLE_TIME_EXT]);
+-
+-	gate_setup_timer(gact, basetime, tk_offset, clockid,
+-			 ret == ACT_P_CREATED);
++	if (need_cancel || ret == ACT_P_CREATED)
++		gate_setup_timer(gact, timer_clockid, tko);
+ 	p->tcfg_priority = prio;
+ 	p->tcfg_flags = gflags;
+-	gate_get_start_time(gact, &start);
++	p->tcfg_basetime = basetime;
++	p->tcfg_clockid = timer_clockid;
++	gate_get_start_time(gact, p, &start);
++
++	old_p = rcu_replace_pointer(gact->param, p,
++				    lockdep_is_held(&gact->tcf_lock));
+ 
+ 	gact->current_close_time = start;
+ 	gact->current_gate_status = GATE_ACT_GATE_OPEN | GATE_ACT_PENDING;
+@@ -434,11 +530,15 @@ static int tcf_gate_init(struct net *net, struct nlattr *nla,
+ 	if (goto_ch)
+ 		tcf_chain_put_by_act(goto_ch);
+ 
++	if (old_p)
++		call_rcu(&old_p->rcu, tcf_gate_params_free_rcu);
++
+ 	return ret;
+ 
++err_free:
++	release_entry_list(&p->entries);
++	kfree(p);
+ chain_put:
+-	spin_unlock_bh(&gact->tcf_lock);
+-
+ 	if (goto_ch)
+ 		tcf_chain_put_by_act(goto_ch);
+ release_idr:
+@@ -446,21 +546,29 @@ release_idr:
+ 	 * without taking tcf_lock.
+ 	 */
+ 	if (ret == ACT_P_CREATED)
+-		gate_setup_timer(gact, gact->param.tcfg_basetime,
+-				 gact->tk_offset, gact->param.tcfg_clockid,
+-				 true);
++		gate_setup_timer(gact, timer_clockid, tko);
++
+ 	tcf_idr_release(*a, bind);
+ 	return err;
+ }
+ 
++static void tcf_gate_params_free_rcu(struct rcu_head *head)
++{
++	struct tcf_gate_params *p = container_of(head, struct tcf_gate_params, rcu);
++
++	release_entry_list(&p->entries);
++	kfree(p);
++}
++
+ static void tcf_gate_cleanup(struct tc_action *a)
+ {
+ 	struct tcf_gate *gact = to_gate(a);
+ 	struct tcf_gate_params *p;
+ 
+-	p = &gact->param;
+ 	hrtimer_cancel(&gact->hitimer);
+-	release_entry_list(&p->entries);
++	p = rcu_dereference_protected(gact->param, 1);
++	if (p)
++		call_rcu(&p->rcu, tcf_gate_params_free_rcu);
+ }
+ 
+ static int dumping_entry(struct sk_buff *skb,
+@@ -509,10 +617,9 @@ static int tcf_gate_dump(struct sk_buff *skb, struct tc_action *a,
+ 	struct nlattr *entry_list;
+ 	struct tcf_t t;
+ 
+-	spin_lock_bh(&gact->tcf_lock);
+-	opt.action = gact->tcf_action;
+-
+-	p = &gact->param;
++	rcu_read_lock();
++	opt.action = READ_ONCE(gact->tcf_action);
++	p = rcu_dereference(gact->param);
+ 
+ 	if (nla_put(skb, TCA_GATE_PARMS, sizeof(opt), &opt))
+ 		goto nla_put_failure;
+@@ -552,12 +659,12 @@ static int tcf_gate_dump(struct sk_buff *skb, struct tc_action *a,
+ 	tcf_tm_dump(&t, &gact->tcf_tm);
+ 	if (nla_put_64bit(skb, TCA_GATE_TM, sizeof(t), &t, TCA_GATE_PAD))
+ 		goto nla_put_failure;
+-	spin_unlock_bh(&gact->tcf_lock);
++	rcu_read_unlock();
+ 
+ 	return skb->len;
+ 
+ nla_put_failure:
+-	spin_unlock_bh(&gact->tcf_lock);
++	rcu_read_unlock();
+ 	nlmsg_trim(skb, b);
+ 	return -1;
+ }
+diff --git a/net/sched/cls_api.c b/net/sched/cls_api.c
+index ecec0a1e1c1a07..bac9cd71ff8e9f 100644
+--- a/net/sched/cls_api.c
++++ b/net/sched/cls_api.c
+@@ -2228,6 +2228,11 @@ static bool is_qdisc_ingress(__u32 classid)
+ 	return (TC_H_MIN(classid) == TC_H_MIN(TC_H_MIN_INGRESS));
+ }
+ 
++static bool is_ingress_or_clsact(struct tcf_block *block, struct Qdisc *q)
++{
++	return tcf_block_shared(block) || (q && !!(q->flags & TCQ_F_INGRESS));
++}
++
+ static int tc_new_tfilter(struct sk_buff *skb, struct nlmsghdr *n,
+ 			  struct netlink_ext_ack *extack)
+ {
+@@ -2420,6 +2425,8 @@ replay:
+ 		flags |= TCA_ACT_FLAGS_NO_RTNL;
+ 	if (is_qdisc_ingress(parent))
+ 		flags |= TCA_ACT_FLAGS_AT_INGRESS;
++	if (is_ingress_or_clsact(block, q))
++		flags |= TCA_ACT_FLAGS_AT_INGRESS_OR_CLSACT;
+ 	err = tp->ops->change(net, skb, tp, cl, t->tcm_handle, tca, &fh,
+ 			      flags, extack);
+ 	if (err == 0) {
+diff --git a/security/apparmor/apparmorfs.c b/security/apparmor/apparmorfs.c
+index 7803b973b4c427..ff301c7e84d906 100644
+--- a/security/apparmor/apparmorfs.c
++++ b/security/apparmor/apparmorfs.c
+@@ -32,6 +32,7 @@
+ #include "include/crypto.h"
+ #include "include/ipc.h"
+ #include "include/label.h"
++#include "include/lib.h"
+ #include "include/policy.h"
+ #include "include/policy_ns.h"
+ #include "include/resource.h"
+@@ -62,6 +63,7 @@
+  * securityfs and apparmorfs filesystems.
+  */
+ 
++#define IREF_POISON 101
+ 
+ /*
+  * support fns
+@@ -79,7 +81,7 @@ static void rawdata_f_data_free(struct rawdata_f_data *private)
+ 	if (!private)
+ 		return;
+ 
+-	aa_put_loaddata(private->loaddata);
++	aa_put_i_loaddata(private->loaddata);
+ 	kvfree(private);
+ }
+ 
+@@ -153,6 +155,71 @@ static int aafs_show_path(struct seq_file *seq, struct dentry *dentry)
+ 	return 0;
+ }
+ 
++static struct aa_ns *get_ns_common_ref(struct aa_common_ref *ref)
++{
++	if (ref) {
++		struct aa_label *reflabel = container_of(ref, struct aa_label,
++							 count);
++		return aa_get_ns(labels_ns(reflabel));
++	}
++
++	return NULL;
++}
++
++static struct aa_proxy *get_proxy_common_ref(struct aa_common_ref *ref)
++{
++	if (ref)
++		return aa_get_proxy(container_of(ref, struct aa_proxy, count));
++
++	return NULL;
++}
++
++static struct aa_loaddata *get_loaddata_common_ref(struct aa_common_ref *ref)
++{
++	if (ref)
++		return aa_get_i_loaddata(container_of(ref, struct aa_loaddata,
++						      count));
++	return NULL;
++}
++
++static void aa_put_common_ref(struct aa_common_ref *ref)
++{
++	if (!ref)
++		return;
++
++	switch (ref->reftype) {
++	case REF_RAWDATA:
++		aa_put_i_loaddata(container_of(ref, struct aa_loaddata,
++					       count));
++		break;
++	case REF_PROXY:
++		aa_put_proxy(container_of(ref, struct aa_proxy,
++					  count));
++		break;
++	case REF_NS:
++		/* ns count is held on its unconfined label */
++		aa_put_ns(labels_ns(container_of(ref, struct aa_label, count)));
++		break;
++	default:
++		AA_BUG(true, "unknown refcount type");
++		break;
++	}
++}
++
++static void aa_get_common_ref(struct aa_common_ref *ref)
++{
++	kref_get(&ref->count);
++}
++
++static void aafs_evict(struct inode *inode)
++{
++	struct aa_common_ref *ref = inode->i_private;
++
++	clear_inode(inode);
++	aa_put_common_ref(ref);
++	inode->i_private = (void *) IREF_POISON;
++}
++
+ static void aafs_free_inode(struct inode *inode)
+ {
+ 	if (S_ISLNK(inode->i_mode))
+@@ -162,6 +229,7 @@ static void aafs_free_inode(struct inode *inode)
+ 
+ static const struct super_operations aafs_super_ops = {
+ 	.statfs = simple_statfs,
++	.evict_inode = aafs_evict,
+ 	.free_inode = aafs_free_inode,
+ 	.show_path = aafs_show_path,
+ };
+@@ -262,7 +330,8 @@ static int __aafs_setup_d_inode(struct inode *dir, struct dentry *dentry,
+  * aafs_remove(). Will return ERR_PTR on failure.
+  */
+ static struct dentry *aafs_create(const char *name, umode_t mode,
+-				  struct dentry *parent, void *data, void *link,
++				  struct dentry *parent,
++				  struct aa_common_ref *data, void *link,
+ 				  const struct file_operations *fops,
+ 				  const struct inode_operations *iops)
+ {
+@@ -299,6 +368,9 @@ static struct dentry *aafs_create(const char *name, umode_t mode,
+ 		goto fail_dentry;
+ 	inode_unlock(dir);
+ 
++	if (data)
++		aa_get_common_ref(data);
++
+ 	return dentry;
+ 
+ fail_dentry:
+@@ -323,7 +395,8 @@ fail_lock:
+  * see aafs_create
+  */
+ static struct dentry *aafs_create_file(const char *name, umode_t mode,
+-				       struct dentry *parent, void *data,
++				       struct dentry *parent,
++				       struct aa_common_ref *data,
+ 				       const struct file_operations *fops)
+ {
+ 	return aafs_create(name, mode, parent, data, NULL, fops, NULL);
+@@ -404,7 +477,8 @@ static struct aa_loaddata *aa_simple_write_to_buffer(const char __user *userbuf,
+ 
+ 	data->size = copy_size;
+ 	if (copy_from_user(data->data, userbuf, copy_size)) {
+-		aa_put_loaddata(data);
++		/* trigger free - don't need to put pcount */
++		aa_put_i_loaddata(data);
+ 		return ERR_PTR(-EFAULT);
+ 	}
+ 
+@@ -412,7 +486,8 @@ static struct aa_loaddata *aa_simple_write_to_buffer(const char __user *userbuf,
+ }
+ 
+ static ssize_t policy_update(u32 mask, const char __user *buf, size_t size,
+-			     loff_t *pos, struct aa_ns *ns)
++			     loff_t *pos, struct aa_ns *ns,
++			     const struct cred *ocred)
+ {
+ 	struct aa_loaddata *data;
+ 	struct aa_label *label;
+@@ -423,7 +498,7 @@ static ssize_t policy_update(u32 mask, const char __user *buf, size_t size,
+ 	/* high level check about policy management - fine grained in
+ 	 * below after unpack
+ 	 */
+-	error = aa_may_manage_policy(current_cred(), label, ns, mask);
++	error = aa_may_manage_policy(current_cred(), label, ns, ocred, mask);
+ 	if (error)
+ 		goto end_section;
+ 
+@@ -431,7 +506,10 @@ static ssize_t policy_update(u32 mask, const char __user *buf, size_t size,
+ 	error = PTR_ERR(data);
+ 	if (!IS_ERR(data)) {
+ 		error = aa_replace_profiles(ns, label, mask, data);
+-		aa_put_loaddata(data);
++		/* put pcount, which will put count and free if no
++		 * profiles referencing it.
++		 */
++		aa_put_profile_loaddata(data);
+ 	}
+ end_section:
+ 	end_current_label_crit_section(label);
+@@ -443,8 +521,9 @@ end_section:
+ static ssize_t profile_load(struct file *f, const char __user *buf, size_t size,
+ 			    loff_t *pos)
+ {
+-	struct aa_ns *ns = aa_get_ns(f->f_inode->i_private);
+-	int error = policy_update(AA_MAY_LOAD_POLICY, buf, size, pos, ns);
++	struct aa_ns *ns = get_ns_common_ref(f->f_inode->i_private);
++	int error = policy_update(AA_MAY_LOAD_POLICY, buf, size, pos, ns,
++				  f->f_cred);
+ 
+ 	aa_put_ns(ns);
+ 
+@@ -460,9 +539,9 @@ static const struct file_operations aa_fs_profile_load = {
+ static ssize_t profile_replace(struct file *f, const char __user *buf,
+ 			       size_t size, loff_t *pos)
+ {
+-	struct aa_ns *ns = aa_get_ns(f->f_inode->i_private);
++	struct aa_ns *ns = get_ns_common_ref(f->f_inode->i_private);
+ 	int error = policy_update(AA_MAY_LOAD_POLICY | AA_MAY_REPLACE_POLICY,
+-				  buf, size, pos, ns);
++				  buf, size, pos, ns, f->f_cred);
+ 	aa_put_ns(ns);
+ 
+ 	return error;
+@@ -480,14 +559,14 @@ static ssize_t profile_remove(struct file *f, const char __user *buf,
+ 	struct aa_loaddata *data;
+ 	struct aa_label *label;
+ 	ssize_t error;
+-	struct aa_ns *ns = aa_get_ns(f->f_inode->i_private);
++	struct aa_ns *ns = get_ns_common_ref(f->f_inode->i_private);
+ 
+ 	label = begin_current_label_crit_section();
+ 	/* high level check about policy management - fine grained in
+ 	 * below after unpack
+ 	 */
+ 	error = aa_may_manage_policy(current_cred(), label, ns,
+-				     AA_MAY_REMOVE_POLICY);
++				     f->f_cred, AA_MAY_REMOVE_POLICY);
+ 	if (error)
+ 		goto out;
+ 
+@@ -501,7 +580,7 @@ static ssize_t profile_remove(struct file *f, const char __user *buf,
+ 	if (!IS_ERR(data)) {
+ 		data->data[size] = 0;
+ 		error = aa_remove_profiles(ns, label, data->data, size);
+-		aa_put_loaddata(data);
++		aa_put_profile_loaddata(data);
+ 	}
+  out:
+ 	end_current_label_crit_section(label);
+@@ -570,7 +649,7 @@ static int ns_revision_open(struct inode *inode, struct file *file)
+ 	if (!rev)
+ 		return -ENOMEM;
+ 
+-	rev->ns = aa_get_ns(inode->i_private);
++	rev->ns = get_ns_common_ref(inode->i_private);
+ 	if (!rev->ns)
+ 		rev->ns = aa_get_current_ns();
+ 	file->private_data = rev;
+@@ -1056,7 +1135,7 @@ static const struct file_operations seq_profile_ ##NAME ##_fops = {	      \
+ static int seq_profile_open(struct inode *inode, struct file *file,
+ 			    int (*show)(struct seq_file *, void *))
+ {
+-	struct aa_proxy *proxy = aa_get_proxy(inode->i_private);
++	struct aa_proxy *proxy = get_proxy_common_ref(inode->i_private);
+ 	int error = single_open(file, show, proxy);
+ 
+ 	if (error) {
+@@ -1248,18 +1327,17 @@ static const struct file_operations seq_rawdata_ ##NAME ##_fops = {	      \
+ static int seq_rawdata_open(struct inode *inode, struct file *file,
+ 			    int (*show)(struct seq_file *, void *))
+ {
+-	struct aa_loaddata *data = __aa_get_loaddata(inode->i_private);
++	struct aa_loaddata *data = get_loaddata_common_ref(inode->i_private);
+ 	int error;
+ 
+ 	if (!data)
+-		/* lost race this ent is being reaped */
+ 		return -ENOENT;
+ 
+ 	error = single_open(file, show, data);
+ 	if (error) {
+ 		AA_BUG(file->private_data &&
+ 		       ((struct seq_file *)file->private_data)->private);
+-		aa_put_loaddata(data);
++		aa_put_i_loaddata(data);
+ 	}
+ 
+ 	return error;
+@@ -1270,7 +1348,7 @@ static int seq_rawdata_release(struct inode *inode, struct file *file)
+ 	struct seq_file *seq = (struct seq_file *) file->private_data;
+ 
+ 	if (seq)
+-		aa_put_loaddata(seq->private);
++		aa_put_i_loaddata(seq->private);
+ 
+ 	return single_release(inode, file);
+ }
+@@ -1382,9 +1460,8 @@ static int rawdata_open(struct inode *inode, struct file *file)
+ 	if (!aa_current_policy_view_capable(NULL))
+ 		return -EACCES;
+ 
+-	loaddata = __aa_get_loaddata(inode->i_private);
++	loaddata = get_loaddata_common_ref(inode->i_private);
+ 	if (!loaddata)
+-		/* lost race: this entry is being reaped */
+ 		return -ENOENT;
+ 
+ 	private = rawdata_f_data_alloc(loaddata->size);
+@@ -1409,7 +1486,7 @@ fail_decompress:
+ 	return error;
+ 
+ fail_private_alloc:
+-	aa_put_loaddata(loaddata);
++	aa_put_i_loaddata(loaddata);
+ 	return error;
+ }
+ 
+@@ -1426,7 +1503,6 @@ static void remove_rawdata_dents(struct aa_loaddata *rawdata)
+ 
+ 	for (i = 0; i < AAFS_LOADDATA_NDENTS; i++) {
+ 		if (!IS_ERR_OR_NULL(rawdata->dents[i])) {
+-			/* no refcounts on i_private */
+ 			aafs_remove(rawdata->dents[i]);
+ 			rawdata->dents[i] = NULL;
+ 		}
+@@ -1469,35 +1545,37 @@ int __aa_fs_create_rawdata(struct aa_ns *ns, struct aa_loaddata *rawdata)
+ 		return PTR_ERR(dir);
+ 	rawdata->dents[AAFS_LOADDATA_DIR] = dir;
+ 
+-	dent = aafs_create_file("abi", S_IFREG | 0444, dir, rawdata,
++	dent = aafs_create_file("abi", S_IFREG | 0444, dir, &rawdata->count,
+ 				      &seq_rawdata_abi_fops);
+ 	if (IS_ERR(dent))
+ 		goto fail;
+ 	rawdata->dents[AAFS_LOADDATA_ABI] = dent;
+ 
+-	dent = aafs_create_file("revision", S_IFREG | 0444, dir, rawdata,
+-				      &seq_rawdata_revision_fops);
++	dent = aafs_create_file("revision", S_IFREG | 0444, dir,
++				&rawdata->count,
++				&seq_rawdata_revision_fops);
+ 	if (IS_ERR(dent))
+ 		goto fail;
+ 	rawdata->dents[AAFS_LOADDATA_REVISION] = dent;
+ 
+ 	if (aa_g_hash_policy) {
+ 		dent = aafs_create_file("sha256", S_IFREG | 0444, dir,
+-					      rawdata, &seq_rawdata_hash_fops);
++					&rawdata->count,
++					&seq_rawdata_hash_fops);
+ 		if (IS_ERR(dent))
+ 			goto fail;
+ 		rawdata->dents[AAFS_LOADDATA_HASH] = dent;
+ 	}
+ 
+ 	dent = aafs_create_file("compressed_size", S_IFREG | 0444, dir,
+-				rawdata,
++				&rawdata->count,
+ 				&seq_rawdata_compressed_size_fops);
+ 	if (IS_ERR(dent))
+ 		goto fail;
+ 	rawdata->dents[AAFS_LOADDATA_COMPRESSED_SIZE] = dent;
+ 
+-	dent = aafs_create_file("raw_data", S_IFREG | 0444,
+-				      dir, rawdata, &rawdata_fops);
++	dent = aafs_create_file("raw_data", S_IFREG | 0444, dir,
++				&rawdata->count, &rawdata_fops);
+ 	if (IS_ERR(dent))
+ 		goto fail;
+ 	rawdata->dents[AAFS_LOADDATA_DATA] = dent;
+@@ -1505,13 +1583,11 @@ int __aa_fs_create_rawdata(struct aa_ns *ns, struct aa_loaddata *rawdata)
+ 
+ 	rawdata->ns = aa_get_ns(ns);
+ 	list_add(&rawdata->list, &ns->rawdata_list);
+-	/* no refcount on inode rawdata */
+ 
+ 	return 0;
+ 
+ fail:
+ 	remove_rawdata_dents(rawdata);
+-
+ 	return PTR_ERR(dent);
+ }
+ #endif /* CONFIG_SECURITY_APPARMOR_EXPORT_BINARY */
+@@ -1535,13 +1611,10 @@ void __aafs_profile_rmdir(struct aa_profile *profile)
+ 		__aafs_profile_rmdir(child);
+ 
+ 	for (i = AAFS_PROF_SIZEOF - 1; i >= 0; --i) {
+-		struct aa_proxy *proxy;
+ 		if (!profile->dents[i])
+ 			continue;
+ 
+-		proxy = d_inode(profile->dents[i])->i_private;
+ 		aafs_remove(profile->dents[i]);
+-		aa_put_proxy(proxy);
+ 		profile->dents[i] = NULL;
+ 	}
+ }
+@@ -1575,14 +1648,7 @@ static struct dentry *create_profile_file(struct dentry *dir, const char *name,
+ 					  struct aa_profile *profile,
+ 					  const struct file_operations *fops)
+ {
+-	struct aa_proxy *proxy = aa_get_proxy(profile->label.proxy);
+-	struct dentry *dent;
+-
+-	dent = aafs_create_file(name, S_IFREG | 0444, dir, proxy, fops);
+-	if (IS_ERR(dent))
+-		aa_put_proxy(proxy);
+-
+-	return dent;
++	return aafs_create_file(name, S_IFREG | 0444, dir, &profile->label.proxy->count, fops);
+ }
+ 
+ #ifdef CONFIG_SECURITY_APPARMOR_EXPORT_BINARY
+@@ -1628,7 +1694,8 @@ static const char *rawdata_get_link_base(struct dentry *dentry,
+ 					 struct delayed_call *done,
+ 					 const char *name)
+ {
+-	struct aa_proxy *proxy = inode->i_private;
++	struct aa_common_ref *ref = inode->i_private;
++	struct aa_proxy *proxy = container_of(ref, struct aa_proxy, count);
+ 	struct aa_label *label;
+ 	struct aa_profile *profile;
+ 	char *target;
+@@ -1770,27 +1837,24 @@ int __aafs_profile_mkdir(struct aa_profile *profile, struct dentry *parent)
+ 	if (profile->rawdata) {
+ 		if (aa_g_hash_policy) {
+ 			dent = aafs_create("raw_sha256", S_IFLNK | 0444, dir,
+-					   profile->label.proxy, NULL, NULL,
+-					   &rawdata_link_sha256_iops);
++					   &profile->label.proxy->count, NULL,
++					   NULL, &rawdata_link_sha256_iops);
+ 			if (IS_ERR(dent))
+ 				goto fail;
+-			aa_get_proxy(profile->label.proxy);
+ 			profile->dents[AAFS_PROF_RAW_HASH] = dent;
+ 		}
+ 		dent = aafs_create("raw_abi", S_IFLNK | 0444, dir,
+-				   profile->label.proxy, NULL, NULL,
++				   &profile->label.proxy->count, NULL, NULL,
+ 				   &rawdata_link_abi_iops);
+ 		if (IS_ERR(dent))
+ 			goto fail;
+-		aa_get_proxy(profile->label.proxy);
+ 		profile->dents[AAFS_PROF_RAW_ABI] = dent;
+ 
+ 		dent = aafs_create("raw_data", S_IFLNK | 0444, dir,
+-				   profile->label.proxy, NULL, NULL,
++				   &profile->label.proxy->count, NULL, NULL,
+ 				   &rawdata_link_data_iops);
+ 		if (IS_ERR(dent))
+ 			goto fail;
+-		aa_get_proxy(profile->label.proxy);
+ 		profile->dents[AAFS_PROF_RAW_DATA] = dent;
+ 	}
+ #endif /*CONFIG_SECURITY_APPARMOR_EXPORT_BINARY */
+@@ -1821,13 +1885,13 @@ static struct dentry *ns_mkdir_op(struct mnt_idmap *idmap, struct inode *dir,
+ 	int error;
+ 
+ 	label = begin_current_label_crit_section();
+-	error = aa_may_manage_policy(current_cred(), label, NULL,
++	error = aa_may_manage_policy(current_cred(), label, NULL, NULL,
+ 				     AA_MAY_LOAD_POLICY);
+ 	end_current_label_crit_section(label);
+ 	if (error)
+ 		return ERR_PTR(error);
+ 
+-	parent = aa_get_ns(dir->i_private);
++	parent = get_ns_common_ref(dir->i_private);
+ 	AA_BUG(d_inode(ns_subns_dir(parent)) != dir);
+ 
+ 	/* we have to unlock and then relock to get locking order right
+@@ -1871,13 +1935,13 @@ static int ns_rmdir_op(struct inode *dir, struct dentry *dentry)
+ 	int error;
+ 
+ 	label = begin_current_label_crit_section();
+-	error = aa_may_manage_policy(current_cred(), label, NULL,
++	error = aa_may_manage_policy(current_cred(), label, NULL, NULL,
+ 				     AA_MAY_LOAD_POLICY);
+ 	end_current_label_crit_section(label);
+ 	if (error)
+ 		return error;
+ 
+-	parent = aa_get_ns(dir->i_private);
++	parent = get_ns_common_ref(dir->i_private);
+ 	/* rmdir calls the generic securityfs functions to remove files
+ 	 * from the apparmor dir. It is up to the apparmor ns locking
+ 	 * to avoid races.
+@@ -1947,27 +2011,6 @@ void __aafs_ns_rmdir(struct aa_ns *ns)
+ 
+ 	__aa_fs_list_remove_rawdata(ns);
+ 
+-	if (ns_subns_dir(ns)) {
+-		sub = d_inode(ns_subns_dir(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-	if (ns_subload(ns)) {
+-		sub = d_inode(ns_subload(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-	if (ns_subreplace(ns)) {
+-		sub = d_inode(ns_subreplace(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-	if (ns_subremove(ns)) {
+-		sub = d_inode(ns_subremove(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-	if (ns_subrevision(ns)) {
+-		sub = d_inode(ns_subrevision(ns))->i_private;
+-		aa_put_ns(sub);
+-	}
+-
+ 	for (i = AAFS_NS_SIZEOF - 1; i >= 0; --i) {
+ 		aafs_remove(ns->dents[i]);
+ 		ns->dents[i] = NULL;
+@@ -1992,40 +2035,40 @@ static int __aafs_ns_mkdir_entries(struct aa_ns *ns, struct dentry *dir)
+ 		return PTR_ERR(dent);
+ 	ns_subdata_dir(ns) = dent;
+ 
+-	dent = aafs_create_file("revision", 0444, dir, ns,
++	dent = aafs_create_file("revision", 0444, dir,
++				&ns->unconfined->label.count,
+ 				&aa_fs_ns_revision_fops);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subrevision(ns) = dent;
+ 
+-	dent = aafs_create_file(".load", 0640, dir, ns,
+-				      &aa_fs_profile_load);
++	dent = aafs_create_file(".load", 0640, dir,
++				&ns->unconfined->label.count,
++				&aa_fs_profile_load);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subload(ns) = dent;
+ 
+-	dent = aafs_create_file(".replace", 0640, dir, ns,
+-				      &aa_fs_profile_replace);
++	dent = aafs_create_file(".replace", 0640, dir,
++				&ns->unconfined->label.count,
++				&aa_fs_profile_replace);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subreplace(ns) = dent;
+ 
+-	dent = aafs_create_file(".remove", 0640, dir, ns,
+-				      &aa_fs_profile_remove);
++	dent = aafs_create_file(".remove", 0640, dir,
++				&ns->unconfined->label.count,
++				&aa_fs_profile_remove);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subremove(ns) = dent;
+ 
+ 	  /* use create_dentry so we can supply private data */
+-	dent = aafs_create("namespaces", S_IFDIR | 0755, dir, ns, NULL, NULL,
+-			   &ns_dir_inode_operations);
++	dent = aafs_create("namespaces", S_IFDIR | 0755, dir,
++			   &ns->unconfined->label.count,
++			   NULL, NULL, &ns_dir_inode_operations);
+ 	if (IS_ERR(dent))
+ 		return PTR_ERR(dent);
+-	aa_get_ns(ns);
+ 	ns_subns_dir(ns) = dent;
+ 
+ 	return 0;
+diff --git a/security/apparmor/include/label.h b/security/apparmor/include/label.h
+index c0812dbc1b5b01..335f21930702aa 100644
+--- a/security/apparmor/include/label.h
++++ b/security/apparmor/include/label.h
+@@ -102,7 +102,7 @@ enum label_flags {
+ 
+ struct aa_label;
+ struct aa_proxy {
+-	struct kref count;
++	struct aa_common_ref count;
+ 	struct aa_label __rcu *label;
+ };
+ 
+@@ -125,7 +125,7 @@ struct label_it {
+  * vec: vector of profiles comprising the compound label
+  */
+ struct aa_label {
+-	struct kref count;
++	struct aa_common_ref count;
+ 	struct rb_node node;
+ 	struct rcu_head rcu;
+ 	struct aa_proxy *proxy;
+@@ -357,7 +357,7 @@ int aa_label_match(struct aa_profile *profile, struct aa_ruleset *rules,
+  */
+ static inline struct aa_label *__aa_get_label(struct aa_label *l)
+ {
+-	if (l && kref_get_unless_zero(&l->count))
++	if (l && kref_get_unless_zero(&l->count.count))
+ 		return l;
+ 
+ 	return NULL;
+@@ -366,7 +366,7 @@ static inline struct aa_label *__aa_get_label(struct aa_label *l)
+ static inline struct aa_label *aa_get_label(struct aa_label *l)
+ {
+ 	if (l)
+-		kref_get(&(l->count));
++		kref_get(&(l->count.count));
+ 
+ 	return l;
+ }
+@@ -386,7 +386,7 @@ static inline struct aa_label *aa_get_label_rcu(struct aa_label __rcu **l)
+ 	rcu_read_lock();
+ 	do {
+ 		c = rcu_dereference(*l);
+-	} while (c && !kref_get_unless_zero(&c->count));
++	} while (c && !kref_get_unless_zero(&c->count.count));
+ 	rcu_read_unlock();
+ 
+ 	return c;
+@@ -426,7 +426,7 @@ static inline struct aa_label *aa_get_newest_label(struct aa_label *l)
+ static inline void aa_put_label(struct aa_label *l)
+ {
+ 	if (l)
+-		kref_put(&l->count, aa_label_kref);
++		kref_put(&l->count.count, aa_label_kref);
+ }
+ 
+ /* wrapper fn to indicate semantics of the check */
+@@ -443,7 +443,7 @@ void aa_proxy_kref(struct kref *kref);
+ static inline struct aa_proxy *aa_get_proxy(struct aa_proxy *proxy)
+ {
+ 	if (proxy)
+-		kref_get(&(proxy->count));
++		kref_get(&(proxy->count.count));
+ 
+ 	return proxy;
+ }
+@@ -451,7 +451,7 @@ static inline struct aa_proxy *aa_get_proxy(struct aa_proxy *proxy)
+ static inline void aa_put_proxy(struct aa_proxy *proxy)
+ {
+ 	if (proxy)
+-		kref_put(&proxy->count, aa_proxy_kref);
++		kref_put(&proxy->count.count, aa_proxy_kref);
+ }
+ 
+ void __aa_proxy_redirect(struct aa_label *orig, struct aa_label *new);
+diff --git a/security/apparmor/include/lib.h b/security/apparmor/include/lib.h
+index 444197075fd6b5..26df19c1df4f8e 100644
+--- a/security/apparmor/include/lib.h
++++ b/security/apparmor/include/lib.h
+@@ -85,6 +85,18 @@ void aa_info_message(const char *str);
+ /* Security blob offsets */
+ extern struct lsm_blob_sizes apparmor_blob_sizes;
+ 
++enum reftype {
++	REF_NS,
++	REF_PROXY,
++	REF_RAWDATA,
++};
++
++/* common reference count used by data the shows up in aafs */
++struct aa_common_ref {
++	struct kref count;
++	enum reftype reftype;
++};
++
+ /**
+  * aa_strneq - compare null terminated @str to a non null terminated substring
+  * @str: a null terminated string
+diff --git a/security/apparmor/include/match.h b/security/apparmor/include/match.h
+index 0dde8eda3d1a59..7accb1c39849aa 100644
+--- a/security/apparmor/include/match.h
++++ b/security/apparmor/include/match.h
+@@ -185,6 +185,7 @@ static inline void aa_put_dfa(struct aa_dfa *dfa)
+ #define MATCH_FLAG_DIFF_ENCODE 0x80000000
+ #define MARK_DIFF_ENCODE 0x40000000
+ #define MATCH_FLAG_OOB_TRANSITION 0x20000000
++#define MARK_DIFF_ENCODE_VERIFIED 0x10000000
+ #define MATCH_FLAGS_MASK 0xff000000
+ #define MATCH_FLAGS_VALID (MATCH_FLAG_DIFF_ENCODE | MATCH_FLAG_OOB_TRANSITION)
+ #define MATCH_FLAGS_INVALID (MATCH_FLAGS_MASK & ~MATCH_FLAGS_VALID)
+diff --git a/security/apparmor/include/policy.h b/security/apparmor/include/policy.h
+index 4c50875c9d13e8..bf105ae9019d3d 100644
+--- a/security/apparmor/include/policy.h
++++ b/security/apparmor/include/policy.h
+@@ -355,7 +355,7 @@ static inline bool profile_mediates_safe(struct aa_profile *profile,
+ static inline struct aa_profile *aa_get_profile(struct aa_profile *p)
+ {
+ 	if (p)
+-		kref_get(&(p->label.count));
++		kref_get(&(p->label.count.count));
+ 
+ 	return p;
+ }
+@@ -369,7 +369,7 @@ static inline struct aa_profile *aa_get_profile(struct aa_profile *p)
+  */
+ static inline struct aa_profile *aa_get_profile_not0(struct aa_profile *p)
+ {
+-	if (p && kref_get_unless_zero(&p->label.count))
++	if (p && kref_get_unless_zero(&p->label.count.count))
+ 		return p;
+ 
+ 	return NULL;
+@@ -389,7 +389,7 @@ static inline struct aa_profile *aa_get_profile_rcu(struct aa_profile __rcu **p)
+ 	rcu_read_lock();
+ 	do {
+ 		c = rcu_dereference(*p);
+-	} while (c && !kref_get_unless_zero(&c->label.count));
++	} while (c && !kref_get_unless_zero(&c->label.count.count));
+ 	rcu_read_unlock();
+ 
+ 	return c;
+@@ -402,7 +402,7 @@ static inline struct aa_profile *aa_get_profile_rcu(struct aa_profile __rcu **p)
+ static inline void aa_put_profile(struct aa_profile *p)
+ {
+ 	if (p)
+-		kref_put(&p->label.count, aa_label_kref);
++		kref_put(&p->label.count.count, aa_label_kref);
+ }
+ 
+ static inline int AUDIT_MODE(struct aa_profile *profile)
+@@ -419,7 +419,7 @@ bool aa_policy_admin_capable(const struct cred *subj_cred,
+ 			     struct aa_label *label, struct aa_ns *ns);
+ int aa_may_manage_policy(const struct cred *subj_cred,
+ 			 struct aa_label *label, struct aa_ns *ns,
+-			 u32 mask);
++			 const struct cred *ocred, u32 mask);
+ bool aa_current_policy_view_capable(struct aa_ns *ns);
+ bool aa_current_policy_admin_capable(struct aa_ns *ns);
+ 
+diff --git a/security/apparmor/include/policy_ns.h b/security/apparmor/include/policy_ns.h
+index d646070fd966be..cc6e8415181209 100644
+--- a/security/apparmor/include/policy_ns.h
++++ b/security/apparmor/include/policy_ns.h
+@@ -18,6 +18,8 @@
+ #include "label.h"
+ #include "policy.h"
+ 
++/* Match max depth of user namespaces */
++#define MAX_NS_DEPTH 32
+ 
+ /* struct aa_ns_acct - accounting of profiles in namespace
+  * @max_size: maximum space allowed for all profiles in namespace
+diff --git a/security/apparmor/include/policy_unpack.h b/security/apparmor/include/policy_unpack.h
+index a6f4611ee50cf9..e5a95dc4da1f76 100644
+--- a/security/apparmor/include/policy_unpack.h
++++ b/security/apparmor/include/policy_unpack.h
+@@ -87,17 +87,29 @@ struct aa_ext {
+ 	u32 version;
+ };
+ 
+-/*
+- * struct aa_loaddata - buffer of policy raw_data set
++/* struct aa_loaddata - buffer of policy raw_data set
++ * @count: inode/filesystem refcount - use aa_get_i_loaddata()
++ * @pcount: profile refcount - use aa_get_profile_loaddata()
++ * @list: list the loaddata is on
++ * @work: used to do a delayed cleanup
++ * @dents: refs to dents created in aafs
++ * @ns: the namespace this loaddata was loaded into
++ * @name:
++ * @size: the size of the data that was loaded
++ * @compressed_size: the size of the data when it is compressed
++ * @revision: unique revision count that this data was loaded as
++ * @abi: the abi number the loaddata uses
++ * @hash: a hash of the loaddata, used to help dedup data
+  *
+- * there is no loaddata ref for being on ns list, nor a ref from
+- * d_inode(@dentry) when grab a ref from these, @ns->lock must be held
+- * && __aa_get_loaddata() needs to be used, and the return value
+- * checked, if NULL the loaddata is already being reaped and should be
+- * considered dead.
++ * There is no loaddata ref for being on ns->rawdata_list, so
++ * @ns->lock must be held when walking the list. Dentries and
++ * inode opens hold refs on @count; profiles hold refs on @pcount.
++ * When the last @pcount drops, do_ploaddata_rmfs() removes the
++ * fs entries and drops the associated @count ref.
+  */
+ struct aa_loaddata {
+-	struct kref count;
++	struct aa_common_ref count;
++	struct kref pcount;
+ 	struct list_head list;
+ 	struct work_struct work;
+ 	struct dentry *dents[AAFS_LOADDATA_NDENTS];
+@@ -119,50 +131,53 @@ struct aa_loaddata {
+ int aa_unpack(struct aa_loaddata *udata, struct list_head *lh, const char **ns);
+ 
+ /**
+- * __aa_get_loaddata - get a reference count to uncounted data reference
++ * aa_get_loaddata - get a reference count from a counted data reference
+  * @data: reference to get a count on
+  *
+- * Returns: pointer to reference OR NULL if race is lost and reference is
+- *          being repeated.
+- * Requires: @data->ns->lock held, and the return code MUST be checked
+- *
+- * Use only from inode->i_private and @data->list found references
++ * Returns: pointer to reference
++ * Requires: @data to have a valid reference count on it. It is a bug
++ *           if the race to reap can be encountered when it is used.
+  */
+ static inline struct aa_loaddata *
+-__aa_get_loaddata(struct aa_loaddata *data)
++aa_get_i_loaddata(struct aa_loaddata *data)
+ {
+-	if (data && kref_get_unless_zero(&(data->count)))
+-		return data;
+ 
+-	return NULL;
++	if (data)
++		kref_get(&(data->count.count));
++	return data;
+ }
+ 
++
+ /**
+- * aa_get_loaddata - get a reference count from a counted data reference
++ * aa_get_profile_loaddata - get a profile reference count on loaddata
+  * @data: reference to get a count on
+  *
+- * Returns: point to reference
+- * Requires: @data to have a valid reference count on it. It is a bug
+- *           if the race to reap can be encountered when it is used.
++ * Returns: pointer to reference
++ * Requires: @data to have a valid reference count on it.
+  */
+ static inline struct aa_loaddata *
+-aa_get_loaddata(struct aa_loaddata *data)
++aa_get_profile_loaddata(struct aa_loaddata *data)
+ {
+-	struct aa_loaddata *tmp = __aa_get_loaddata(data);
+-
+-	AA_BUG(data && !tmp);
+-
+-	return tmp;
++	if (data)
++		kref_get(&(data->pcount));
++	return data;
+ }
+ 
+ void __aa_loaddata_update(struct aa_loaddata *data, long revision);
+ bool aa_rawdata_eq(struct aa_loaddata *l, struct aa_loaddata *r);
+ void aa_loaddata_kref(struct kref *kref);
++void aa_ploaddata_kref(struct kref *kref);
+ struct aa_loaddata *aa_loaddata_alloc(size_t size);
+-static inline void aa_put_loaddata(struct aa_loaddata *data)
++static inline void aa_put_i_loaddata(struct aa_loaddata *data)
++{
++	if (data)
++		kref_put(&data->count.count, aa_loaddata_kref);
++}
++
++static inline void aa_put_profile_loaddata(struct aa_loaddata *data)
+ {
+ 	if (data)
+-		kref_put(&data->count, aa_loaddata_kref);
++		kref_put(&data->pcount, aa_ploaddata_kref);
+ }
+ 
+ #if IS_ENABLED(CONFIG_KUNIT)
+diff --git a/security/apparmor/label.c b/security/apparmor/label.c
+index dd6c58f595ba8d..3bec1e33815e2f 100644
+--- a/security/apparmor/label.c
++++ b/security/apparmor/label.c
+@@ -52,7 +52,8 @@ static void free_proxy(struct aa_proxy *proxy)
+ 
+ void aa_proxy_kref(struct kref *kref)
+ {
+-	struct aa_proxy *proxy = container_of(kref, struct aa_proxy, count);
++	struct aa_proxy *proxy = container_of(kref, struct aa_proxy,
++					      count.count);
+ 
+ 	free_proxy(proxy);
+ }
+@@ -63,7 +64,8 @@ struct aa_proxy *aa_alloc_proxy(struct aa_label *label, gfp_t gfp)
+ 
+ 	new = kzalloc(sizeof(struct aa_proxy), gfp);
+ 	if (new) {
+-		kref_init(&new->count);
++		kref_init(&new->count.count);
++		new->count.reftype = REF_PROXY;
+ 		rcu_assign_pointer(new->label, aa_get_label(label));
+ 	}
+ 	return new;
+@@ -375,7 +377,8 @@ static void label_free_rcu(struct rcu_head *head)
+ 
+ void aa_label_kref(struct kref *kref)
+ {
+-	struct aa_label *label = container_of(kref, struct aa_label, count);
++	struct aa_label *label = container_of(kref, struct aa_label,
++					      count.count);
+ 	struct aa_ns *ns = labels_ns(label);
+ 
+ 	if (!ns) {
+@@ -412,7 +415,8 @@ bool aa_label_init(struct aa_label *label, int size, gfp_t gfp)
+ 
+ 	label->size = size;			/* doesn't include null */
+ 	label->vec[size] = NULL;		/* null terminate */
+-	kref_init(&label->count);
++	kref_init(&label->count.count);
++	label->count.reftype = REF_NS;		/* for aafs purposes */
+ 	RB_CLEAR_NODE(&label->node);
+ 
+ 	return true;
+diff --git a/security/apparmor/match.c b/security/apparmor/match.c
+index bbeb3be68572f1..0de249725efbf8 100644
+--- a/security/apparmor/match.c
++++ b/security/apparmor/match.c
+@@ -160,9 +160,10 @@ static int verify_dfa(struct aa_dfa *dfa)
+ 	if (state_count == 0)
+ 		goto out;
+ 	for (i = 0; i < state_count; i++) {
+-		if (!(BASE_TABLE(dfa)[i] & MATCH_FLAG_DIFF_ENCODE) &&
+-		    (DEFAULT_TABLE(dfa)[i] >= state_count))
++		if (DEFAULT_TABLE(dfa)[i] >= state_count) {
++			pr_err("AppArmor DFA default state out of bounds");
+ 			goto out;
++		}
+ 		if (BASE_TABLE(dfa)[i] & MATCH_FLAGS_INVALID) {
+ 			pr_err("AppArmor DFA state with invalid match flags");
+ 			goto out;
+@@ -201,16 +202,31 @@ static int verify_dfa(struct aa_dfa *dfa)
+ 		size_t j, k;
+ 
+ 		for (j = i;
+-		     (BASE_TABLE(dfa)[j] & MATCH_FLAG_DIFF_ENCODE) &&
+-		     !(BASE_TABLE(dfa)[j] & MARK_DIFF_ENCODE);
++		     ((BASE_TABLE(dfa)[j] & MATCH_FLAG_DIFF_ENCODE) &&
++		      !(BASE_TABLE(dfa)[j] & MARK_DIFF_ENCODE_VERIFIED));
+ 		     j = k) {
++			if (BASE_TABLE(dfa)[j] & MARK_DIFF_ENCODE)
++				/* loop in current chain */
++				goto out;
+ 			k = DEFAULT_TABLE(dfa)[j];
+ 			if (j == k)
++				/* self loop */
+ 				goto out;
+-			if (k < j)
+-				break;		/* already verified */
+ 			BASE_TABLE(dfa)[j] |= MARK_DIFF_ENCODE;
+ 		}
++		/* move mark to verified */
++		for (j = i;
++		     (BASE_TABLE(dfa)[j] & MATCH_FLAG_DIFF_ENCODE);
++		     j = k) {
++			k = DEFAULT_TABLE(dfa)[j];
++			if (j < i)
++				/* jumps to state/chain that has been
++				 * verified
++				 */
++				break;
++			BASE_TABLE(dfa)[j] &= ~MARK_DIFF_ENCODE;
++			BASE_TABLE(dfa)[j] |= MARK_DIFF_ENCODE_VERIFIED;
++		}
+ 	}
+ 	error = 0;
+ 
+@@ -463,13 +479,18 @@ aa_state_t aa_dfa_match_len(struct aa_dfa *dfa, aa_state_t start,
+ 	if (dfa->tables[YYTD_ID_EC]) {
+ 		/* Equivalence class table defined */
+ 		u8 *equiv = EQUIV_TABLE(dfa);
+-		for (; len; len--)
+-			match_char(state, def, base, next, check,
+-				   equiv[(u8) *str++]);
++		for (; len; len--) {
++			u8 c = equiv[(u8) *str];
++
++			match_char(state, def, base, next, check, c);
++			str++;
++		}
+ 	} else {
+ 		/* default is direct to next state */
+-		for (; len; len--)
+-			match_char(state, def, base, next, check, (u8) *str++);
++		for (; len; len--) {
++			match_char(state, def, base, next, check, (u8) *str);
++			str++;
++		}
+ 	}
+ 
+ 	return state;
+@@ -503,13 +524,18 @@ aa_state_t aa_dfa_match(struct aa_dfa *dfa, aa_state_t start, const char *str)
+ 		/* Equivalence class table defined */
+ 		u8 *equiv = EQUIV_TABLE(dfa);
+ 		/* default is direct to next state */
+-		while (*str)
+-			match_char(state, def, base, next, check,
+-				   equiv[(u8) *str++]);
++		while (*str) {
++			u8 c = equiv[(u8) *str];
++
++			match_char(state, def, base, next, check, c);
++			str++;
++		}
+ 	} else {
+ 		/* default is direct to next state */
+-		while (*str)
+-			match_char(state, def, base, next, check, (u8) *str++);
++		while (*str) {
++			match_char(state, def, base, next, check, (u8) *str);
++			str++;
++		}
+ 	}
+ 
+ 	return state;
+diff --git a/security/apparmor/policy.c b/security/apparmor/policy.c
+index 50d5345ff5cbab..b92db1b2f26e20 100644
+--- a/security/apparmor/policy.c
++++ b/security/apparmor/policy.c
+@@ -183,19 +183,43 @@ static void __list_remove_profile(struct aa_profile *profile)
+ }
+ 
+ /**
+- * __remove_profile - remove old profile, and children
+- * @profile: profile to be replaced  (NOT NULL)
++ * __remove_profile - remove profile, and children
++ * @profile: profile to be removed  (NOT NULL)
+  *
+  * Requires: namespace list lock be held, or list not be shared
+  */
+ static void __remove_profile(struct aa_profile *profile)
+ {
++	struct aa_profile *curr, *to_remove;
++
+ 	AA_BUG(!profile);
+ 	AA_BUG(!profile->ns);
+ 	AA_BUG(!mutex_is_locked(&profile->ns->lock));
+ 
+ 	/* release any children lists first */
+-	__aa_profile_list_release(&profile->base.profiles);
++	if (!list_empty(&profile->base.profiles)) {
++		curr = list_first_entry(&profile->base.profiles, struct aa_profile, base.list);
++
++		while (curr != profile) {
++
++			while (!list_empty(&curr->base.profiles))
++				curr = list_first_entry(&curr->base.profiles,
++							struct aa_profile, base.list);
++
++			to_remove = curr;
++			if (!list_is_last(&to_remove->base.list,
++					  &aa_deref_parent(curr)->base.profiles))
++				curr = list_next_entry(to_remove, base.list);
++			else
++				curr = aa_deref_parent(curr);
++
++			/* released by free_profile */
++			aa_label_remove(&to_remove->label);
++			__aafs_profile_rmdir(to_remove);
++			__list_remove_profile(to_remove);
++		}
++	}
++
+ 	/* released by free_profile */
+ 	aa_label_remove(&profile->label);
+ 	__aafs_profile_rmdir(profile);
+@@ -312,7 +336,7 @@ void aa_free_profile(struct aa_profile *profile)
+ 	}
+ 
+ 	kfree_sensitive(profile->hash);
+-	aa_put_loaddata(profile->rawdata);
++	aa_put_profile_loaddata(profile->rawdata);
+ 	aa_label_destroy(&profile->label);
+ 
+ 	kfree_sensitive(profile);
+@@ -901,17 +925,44 @@ bool aa_current_policy_admin_capable(struct aa_ns *ns)
+ 	return res;
+ }
+ 
++static bool is_subset_of_obj_privilege(const struct cred *cred,
++				       struct aa_label *label,
++				       const struct cred *ocred)
++{
++	if (cred == ocred)
++		return true;
++
++	if (!aa_label_is_subset(label, cred_label(ocred)))
++		return false;
++	/* don't allow crossing userns for now */
++	if (cred->user_ns != ocred->user_ns)
++		return false;
++	if (!cap_issubset(cred->cap_inheritable, ocred->cap_inheritable))
++		return false;
++	if (!cap_issubset(cred->cap_permitted, ocred->cap_permitted))
++		return false;
++	if (!cap_issubset(cred->cap_effective, ocred->cap_effective))
++		return false;
++	if (!cap_issubset(cred->cap_bset, ocred->cap_bset))
++		return false;
++	if (!cap_issubset(cred->cap_ambient, ocred->cap_ambient))
++		return false;
++	return true;
++}
++
++
+ /**
+  * aa_may_manage_policy - can the current task manage policy
+  * @subj_cred: subjects cred
+  * @label: label to check if it can manage policy
+  * @ns: namespace being managed by @label (may be NULL if @label's ns)
++ * @ocred: object cred if request is coming from an open object
+  * @mask: contains the policy manipulation operation being done
+  *
+  * Returns: 0 if the task is allowed to manipulate policy else error
+  */
+ int aa_may_manage_policy(const struct cred *subj_cred, struct aa_label *label,
+-			 struct aa_ns *ns, u32 mask)
++			 struct aa_ns *ns, const struct cred *ocred, u32 mask)
+ {
+ 	const char *op;
+ 
+@@ -927,6 +978,11 @@ int aa_may_manage_policy(const struct cred *subj_cred, struct aa_label *label,
+ 		return audit_policy(label, op, NULL, NULL, "policy_locked",
+ 				    -EACCES);
+ 
++	if (ocred && !is_subset_of_obj_privilege(subj_cred, label, ocred))
++		return audit_policy(label, op, NULL, NULL,
++				    "not privileged for target profile",
++				    -EACCES);
++
+ 	if (!aa_policy_admin_capable(subj_cred, label, ns))
+ 		return audit_policy(label, op, NULL, NULL, "not policy admin",
+ 				    -EACCES);
+@@ -1098,7 +1154,7 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 	LIST_HEAD(lh);
+ 
+ 	op = mask & AA_MAY_REPLACE_POLICY ? OP_PROF_REPL : OP_PROF_LOAD;
+-	aa_get_loaddata(udata);
++	aa_get_profile_loaddata(udata);
+ 	/* released below */
+ 	error = aa_unpack(udata, &lh, &ns_name);
+ 	if (error)
+@@ -1125,6 +1181,7 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 				goto fail;
+ 			}
+ 			ns_name = ent->ns_name;
++			ent->ns_name = NULL;
+ 		} else
+ 			count++;
+ 	}
+@@ -1149,10 +1206,10 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 			if (aa_rawdata_eq(rawdata_ent, udata)) {
+ 				struct aa_loaddata *tmp;
+ 
+-				tmp = __aa_get_loaddata(rawdata_ent);
++				tmp = aa_get_profile_loaddata(rawdata_ent);
+ 				/* check we didn't fail the race */
+ 				if (tmp) {
+-					aa_put_loaddata(udata);
++					aa_put_profile_loaddata(udata);
+ 					udata = tmp;
+ 					break;
+ 				}
+@@ -1165,7 +1222,7 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 		struct aa_profile *p;
+ 
+ 		if (aa_g_export_binary)
+-			ent->new->rawdata = aa_get_loaddata(udata);
++			ent->new->rawdata = aa_get_profile_loaddata(udata);
+ 		error = __lookup_replace(ns, ent->new->base.hname,
+ 					 !(mask & AA_MAY_REPLACE_POLICY),
+ 					 &ent->old, &info);
+@@ -1298,7 +1355,7 @@ ssize_t aa_replace_profiles(struct aa_ns *policy_ns, struct aa_label *label,
+ 
+ out:
+ 	aa_put_ns(ns);
+-	aa_put_loaddata(udata);
++	aa_put_profile_loaddata(udata);
+ 	kfree(ns_name);
+ 
+ 	if (error)
+diff --git a/security/apparmor/policy_ns.c b/security/apparmor/policy_ns.c
+index 64783ca3b0f2a2..ff49a31ac27442 100644
+--- a/security/apparmor/policy_ns.c
++++ b/security/apparmor/policy_ns.c
+@@ -223,6 +223,8 @@ static struct aa_ns *__aa_create_ns(struct aa_ns *parent, const char *name,
+ 	AA_BUG(!name);
+ 	AA_BUG(!mutex_is_locked(&parent->lock));
+ 
++	if (parent->level > MAX_NS_DEPTH)
++		return ERR_PTR(-ENOSPC);
+ 	ns = alloc_ns(parent->base.hname, name);
+ 	if (!ns)
+ 		return ERR_PTR(-ENOMEM);
+diff --git a/security/apparmor/policy_unpack.c b/security/apparmor/policy_unpack.c
+index dd602bd5fca998..b0e18dd8d512bf 100644
+--- a/security/apparmor/policy_unpack.c
++++ b/security/apparmor/policy_unpack.c
+@@ -109,34 +109,48 @@ bool aa_rawdata_eq(struct aa_loaddata *l, struct aa_loaddata *r)
+ 	return memcmp(l->data, r->data, r->compressed_size ?: r->size) == 0;
+ }
+ 
++static void do_loaddata_free(struct aa_loaddata *d)
++{
++	kfree_sensitive(d->hash);
++	kfree_sensitive(d->name);
++	kvfree(d->data);
++	kfree_sensitive(d);
++}
++
++void aa_loaddata_kref(struct kref *kref)
++{
++	struct aa_loaddata *d = container_of(kref, struct aa_loaddata,
++					     count.count);
++
++	do_loaddata_free(d);
++}
++
+ /*
+  * need to take the ns mutex lock which is NOT safe most places that
+  * put_loaddata is called, so we have to delay freeing it
+  */
+-static void do_loaddata_free(struct work_struct *work)
++static void do_ploaddata_rmfs(struct work_struct *work)
+ {
+ 	struct aa_loaddata *d = container_of(work, struct aa_loaddata, work);
+ 	struct aa_ns *ns = aa_get_ns(d->ns);
+ 
+ 	if (ns) {
+ 		mutex_lock_nested(&ns->lock, ns->level);
++		/* remove fs ref to loaddata */
+ 		__aa_fs_remove_rawdata(d);
+ 		mutex_unlock(&ns->lock);
+ 		aa_put_ns(ns);
+ 	}
+-
+-	kfree_sensitive(d->hash);
+-	kfree_sensitive(d->name);
+-	kvfree(d->data);
+-	kfree_sensitive(d);
++	/* called by dropping last pcount, so drop its associated icount */
++	aa_put_i_loaddata(d);
+ }
+ 
+-void aa_loaddata_kref(struct kref *kref)
++void aa_ploaddata_kref(struct kref *kref)
+ {
+-	struct aa_loaddata *d = container_of(kref, struct aa_loaddata, count);
++	struct aa_loaddata *d = container_of(kref, struct aa_loaddata, pcount);
+ 
+ 	if (d) {
+-		INIT_WORK(&d->work, do_loaddata_free);
++		INIT_WORK(&d->work, do_ploaddata_rmfs);
+ 		schedule_work(&d->work);
+ 	}
+ }
+@@ -153,7 +167,9 @@ struct aa_loaddata *aa_loaddata_alloc(size_t size)
+ 		kfree(d);
+ 		return ERR_PTR(-ENOMEM);
+ 	}
+-	kref_init(&d->count);
++	kref_init(&d->count.count);
++	d->count.reftype = REF_RAWDATA;
++	kref_init(&d->pcount);
+ 	INIT_LIST_HEAD(&d->list);
+ 
+ 	return d;
+@@ -770,7 +786,17 @@ static int unpack_pdb(struct aa_ext *e, struct aa_policydb **policy,
+ 		if (!aa_unpack_u32(e, &pdb->start[AA_CLASS_FILE], "dfa_start")) {
+ 			/* default start state for xmatch and file dfa */
+ 			pdb->start[AA_CLASS_FILE] = DFA_START;
+-		}	/* setup class index */
++		}
++
++		size_t state_count = pdb->dfa->tables[YYTD_ID_BASE]->td_lolen;
++
++		if (pdb->start[0] >= state_count ||
++		    pdb->start[AA_CLASS_FILE] >= state_count) {
++			*info = "invalid dfa start state";
++			goto fail;
++		}
++
++		/* setup class index */
+ 		for (i = AA_CLASS_FILE + 1; i <= AA_CLASS_LAST; i++) {
+ 			pdb->start[i] = aa_dfa_next(pdb->dfa, pdb->start[0],
+ 						    i);
+@@ -1167,7 +1193,6 @@ static int verify_header(struct aa_ext *e, int required, const char **ns)
+ {
+ 	int error = -EPROTONOSUPPORT;
+ 	const char *name = NULL;
+-	*ns = NULL;
+ 
+ 	/* get the interface version */
+ 	if (!aa_unpack_u32(e, &e->version, "version")) {

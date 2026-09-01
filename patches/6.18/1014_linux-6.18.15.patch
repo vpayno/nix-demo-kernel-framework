@@ -1,0 +1,67 @@
+diff --git a/Makefile b/Makefile
+index d166d069509991..e4aa2e76ea563a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 18
+-SUBLEVEL = 14
++SUBLEVEL = 15
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/include/net/netfilter/nf_tables.h b/include/net/netfilter/nf_tables.h
+index 7eac73f9b4ce34..05f57ba6224476 100644
+--- a/include/net/netfilter/nf_tables.h
++++ b/include/net/netfilter/nf_tables.h
+@@ -456,6 +456,7 @@ struct nft_set_ext;
+  *	@init: initialize private data of new set instance
+  *	@destroy: destroy private data of set instance
+  *	@gc_init: initialize garbage collection
++ *	@abort_skip_removal: skip removal of elements from abort path
+  *	@elemsize: element private size
+  *
+  *	Operations lookup, update and delete have simpler interfaces, are faster
+@@ -513,6 +514,7 @@ struct nft_set_ops {
+ 						   const struct nft_set *set);
+ 	void				(*gc_init)(const struct nft_set *set);
+ 
++	bool				abort_skip_removal;
+ 	unsigned int			elemsize;
+ };
+ 
+diff --git a/net/netfilter/nf_tables_api.c b/net/netfilter/nf_tables_api.c
+index df367638cdef0f..d4babc4d3bff38 100644
+--- a/net/netfilter/nf_tables_api.c
++++ b/net/netfilter/nf_tables_api.c
+@@ -7821,7 +7821,8 @@ static bool nft_trans_elems_new_abort(const struct nft_ctx *ctx,
+ 			continue;
+ 		}
+ 
+-		if (!te->set->ops->abort || nft_setelem_is_catchall(te->set, te->elems[i].priv))
++		if (!te->set->ops->abort_skip_removal ||
++		    nft_setelem_is_catchall(te->set, te->elems[i].priv))
+ 			nft_setelem_remove(ctx->net, te->set, te->elems[i].priv);
+ 
+ 		if (!nft_setelem_is_catchall(te->set, te->elems[i].priv))
+diff --git a/net/netfilter/nft_set_pipapo.c b/net/netfilter/nft_set_pipapo.c
+index 6d77a5f0088ad0..18e1903b1d3d0b 100644
+--- a/net/netfilter/nft_set_pipapo.c
++++ b/net/netfilter/nft_set_pipapo.c
+@@ -2370,6 +2370,7 @@ const struct nft_set_type nft_set_pipapo_type = {
+ 		.gc_init	= nft_pipapo_gc_init,
+ 		.commit		= nft_pipapo_commit,
+ 		.abort		= nft_pipapo_abort,
++		.abort_skip_removal = true,
+ 		.elemsize	= offsetof(struct nft_pipapo_elem, ext),
+ 	},
+ };
+@@ -2394,6 +2395,7 @@ const struct nft_set_type nft_set_pipapo_avx2_type = {
+ 		.gc_init	= nft_pipapo_gc_init,
+ 		.commit		= nft_pipapo_commit,
+ 		.abort		= nft_pipapo_abort,
++		.abort_skip_removal = true,
+ 		.elemsize	= offsetof(struct nft_pipapo_elem, ext),
+ 	},
+ };

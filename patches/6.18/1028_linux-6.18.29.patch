@@ -1,0 +1,42 @@
+diff --git a/Makefile b/Makefile
+index 8d068587e6bd53..ca41f54bea2ee0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 18
+-SUBLEVEL = 28
++SUBLEVEL = 29
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/net/rxrpc/call_event.c b/net/rxrpc/call_event.c
+index fdd683261226cf..2b19b252225e55 100644
+--- a/net/rxrpc/call_event.c
++++ b/net/rxrpc/call_event.c
+@@ -334,7 +334,9 @@ bool rxrpc_input_call_event(struct rxrpc_call *call)
+ 
+ 			if (sp->hdr.type == RXRPC_PACKET_TYPE_DATA &&
+ 			    sp->hdr.securityIndex != 0 &&
+-			    skb_cloned(skb)) {
++			    (skb_cloned(skb) ||
++			     skb_has_frag_list(skb) ||
++			     skb_has_shared_frag(skb))) {
+ 				/* Unshare the packet so that it can be
+ 				 * modified by in-place decryption.
+ 				 */
+diff --git a/net/rxrpc/conn_event.c b/net/rxrpc/conn_event.c
+index a2130d25aaa9b7..442414d90ba1cd 100644
+--- a/net/rxrpc/conn_event.c
++++ b/net/rxrpc/conn_event.c
+@@ -245,7 +245,8 @@ static int rxrpc_verify_response(struct rxrpc_connection *conn,
+ {
+ 	int ret;
+ 
+-	if (skb_cloned(skb)) {
++	if (skb_cloned(skb) || skb_has_frag_list(skb) ||
++	    skb_has_shared_frag(skb)) {
+ 		/* Copy the packet if shared so that we can do in-place
+ 		 * decryption.
+ 		 */
