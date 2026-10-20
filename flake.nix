@@ -188,6 +188,7 @@
             linux_6_6-gentoo
             linux_6_6-patched
             linux_6_6-upstream
+            linux_6_18-gentoo
             ;
 
           inherit (scripts) showUsage showLatest fetchGentooPatches;
