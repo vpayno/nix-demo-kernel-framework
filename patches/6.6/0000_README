@@ -615,17 +615,69 @@ Patch:  1142_linux-6.6.143.patch
 From:   https://www.kernel.org
 Desc:   Linux 6.6.143
 
-Patch:  1500_ipv6-frag-escape-mitigation.patch
-From:   https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git/commit/?id=736b380e28d0
-Desc:   ipv6: account for fraggap on the paged allocation path
+Patch:  1143_linux-6.6.144.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.144
 
-Patch:  1502_inet-add-indirect-call-wrapper-for-getfrag-calls.patch
-From:   https://git.kernel.org/pub/scm/linux/kernel/git/stable/stable-queue.git/plain/queue-6.12/inet-add-indirect-call-wrapper-for-getfrag-calls.patch
-Desc:   inet: add indirect call wrapper for getfrag() calls
+Patch:  1144_linux-6.6.145.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.145
 
-Patch:  1503_ipv4-frag-escape-mitigation.patch
-From:   https://git.kernel.org/pub/scm/linux/kernel/git/stable/stable-queue.git/plain/queue-6.12/inet-add-indirect-call-wrapper-for-getfrag-calls.patch
-Desc:   ipv4: account for fraggap on the paged allocation path
+Patch:  1145_linux-6.6.146.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.146
+
+Patch:  1146_linux-6.6.147.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.147
+
+Patch:  1147_linux-6.6.148.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.148
+
+Patch:  1148_linux-6.6.149.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.149
+
+Patch:  1149_linux-6.6.150.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.150
+
+Patch:  1150_linux-6.6.151.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.151
+
+Patch:  1151_linux-6.6.152.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.152
+
+Patch:  1152_linux-6.6.153.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.153
+
+Patch:  1153_linux-6.6.154.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.154
+
+Patch:  1154_linux-6.6.155.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.155
+
+Patch:  1155_linux-6.6.156.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.156
+
+Patch:  1156_linux-6.6.157.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.157
+
+Patch:  1157_linux-6.6.158.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.158
+
+Patch:  1158_linux-6.6.159.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.6.159
 
 Patch:  1510_fs-enable-link-security-restrictions-by-default.patch
 From:   http://sources.debian.net/src/linux/3.16.7-ckt4-3/debian/patches/debian/fs-enable-link-security-restrictions-by-default.patch
@@ -634,10 +686,6 @@ Desc:   Enable link security restrictions by default.
 Patch:  1525_net-rxrpc-mark-AF_RXRPC-as-BROKEN.patch
 From:   https://bugs.gentoo.org/974307
 Desc:   net/rxrpc: mark AF_RXRPC as BROKEN (and reverse dependencies)
-
-Patch:  1555_can-bcm-defer-rx-op-dealloca.patch
-From:   https://lore.kernel.org/all/20260526165257.3705239-1-lee@kernel.org/
-Desc:   can: bcm: defer rx_op deallocation to workqueue to fix thrtimer UAF
 
 Patch:  1605_crypto-nx-fix-nx-crypto-ctx-exit-arg.patch
 From:   https://lore.kernel.org/all/a3e89c1e8342ffa415b0d29725a0571a4f355d34.1779472902.git.sam@gentoo.org/
