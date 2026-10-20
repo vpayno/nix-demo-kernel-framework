@@ -191,29 +191,97 @@ Patch:  1036_linux-6.18.37.patch
 From:   https://www.kernel.org
 Desc:   Linux 6.18.37
 
-Patch:  1500_ipv6-frag-escape-mitigation.patch
-From:   https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git/commit/?id=736b380e28d0
-Desc:   ipv6: account for fraggap on the paged allocation path
+Patch:  1037_linux-6.18.38.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.38
 
-Patch:  1502_ipv4-frag-escape-mitigation.patch
-From:   https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/patch/?id=eca856950
-Desc:   ipv4: account for fraggap on the paged allocation path
+Patch:  1038_linux-6.18.39.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.39
+
+Patch:  1039_linux-6.18.40.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.40
+
+Patch:  1040_linux-6.18.41.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.41
+
+Patch:  1041_linux-6.18.42.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.42
+
+Patch:  1042_linux-6.18.43.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.43
+
+Patch:  1043_linux-6.18.44.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.44
+
+Patch:  1044_linux-6.18.45.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.45
+
+Patch:  1045_linux-6.18.46.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.46
+
+Patch:  1046_linux-6.18.47.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.47
+
+Patch:  1047_linux-6.18.48.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.48
+
+Patch:  1048_linux-6.18.49.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.49
+
+Patch:  1049_linux-6.18.50.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.50
+
+Patch:  1050_linux-6.18.51.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.51
+
+Patch:  1051_linux-6.18.52.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.52
+
+Patch:  1052_linux-6.18.53.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.53
+
+Patch:  1053_linux-6.18.54.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.54
+
+Patch:  1054_linux-6.18.55.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.55
+
+Patch:  1055_linux-6.18.56.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.56
+
+Patch:  1056_linux-6.18.57.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.18.57
 
 Patch:  1510_fs-enable-link-security-restrictions-by-default.patch
 From:   http://sources.debian.net/src/linux/3.16.7-ckt4-3/debian/patches/debian/fs-enable-link-security-restrictions-by-default.patch/
 Desc:   Enable link security restrictions by default.
 
-Patch:  1555_can-bcm-defer-rx-op-dealloca.patch
-From:   https://lore.kernel.org/all/20260526165257.3705239-1-lee@kernel.org/
-Desc:   can: bcm: defer rx_op deallocation to workqueue to fix thrtimer UAF
-
-Patch:  1605_crypto-nx-fix-nx-crypto-ctx-exit-arg.patch
-From:   https://lore.kernel.org/all/a3e89c1e8342ffa415b0d29725a0571a4f355d34.1779472902.git.sam@gentoo.org/
-Desc:   crypto: nx: fix nx_crypto_ctx_exit argument
-
 Patch:  1700_sparc-address-warray-bound-warnings.patch
 From:   https://github.com/KSPP/linux/issues/109
 Desc:   Address -Warray-bounds warnings
+
+Patch:  1710_x86-cpu-amd-avoid-printing-reset-reasons-on-Xen-domU.patch
+From:   https://lore.kernel.org/lkml/20251219010131.12659-1-ariadne@ariadne.space/T/#u
+Desc:   x86/CPU/AMD: avoid printing reset reasons on Xen domU
 
 Patch:  1730_parisc-Disable-prctl.patch
 From:   https://git.kernel.org/pub/scm/linux/kernel/git/deller/parisc-linux.git
@@ -246,7 +314,3 @@ Desc:   Print firmware info (Reqs CONFIG_GENTOO_PRINT_FIRMWARE_INFO). Thanks to 
 Patch:  4567_distro-Gentoo-Kconfig.patch
 From:   Tom Wijsman <TomWij@gentoo.org>
 Desc:   Add Gentoo Linux support config settings and defaults.
-
-Patch:  5010_enable-cpu-optimizations-universal.patch
-From:   https://github.com/graysky2/kernel_compiler_patch
-Desc:   More ISA levels and uarches for kernel 6.16+

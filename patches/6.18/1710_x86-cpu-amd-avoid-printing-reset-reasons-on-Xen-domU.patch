@@ -1,0 +1,47 @@
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH] x86/CPU/AMD: avoid printing reset reasons on Xen domU
+From: Ariadne Conill <ariadne@ariadne.space>
+Date: Thu, 18 Dec 2025 17:01:31 -0800
+Message-Id: <20251219010131.12659-1-ariadne@ariadne.space>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Xen domU cannot access the given MMIO address for security reasons,
+resulting in a failed hypercall in ioremap() due to permissions.
+
+Fixes: ab8131028710 ("x86/CPU/AMD: Print the reason for the last reset")
+Signed-off-by: Ariadne Conill <ariadne@ariadne.space>
+Cc: xen-devel@lists.xenproject.org
+Cc: stable@vger.kernel.org
+---
+ arch/x86/kernel/cpu/amd.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index a6f88ca1a6b4..99308fba4d7d 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -29,6 +29,8 @@
+ # include <asm/mmconfig.h>
+ #endif
+ 
++#include <xen/xen.h>
++
+ #include "cpu.h"
+ 
+ u16 invlpgb_count_max __ro_after_init = 1;
+@@ -1333,6 +1335,10 @@ static __init int print_s5_reset_status_mmio(void)
+ 	if (!cpu_feature_enabled(X86_FEATURE_ZEN))
+ 		return 0;
+ 
++	/* Xen PV domU cannot access hardware directly, so bail for domU case */
++	if (cpu_feature_enabled(X86_FEATURE_XENPV) && !xen_initial_domain())
++		return 0;
++
+ 	addr = ioremap(FCH_PM_BASE + FCH_PM_S5_RESET_STATUS, sizeof(value));
+ 	if (!addr)
+ 		return 0;
+-- 
+2.51.0
+
