@@ -419,21 +419,85 @@ Patch:  1093_linux-6.12.94.patch
 From:   https://www.kernel.org
 Desc:   Linux 6.12.94
 
+Patch:  1094_linux-6.12.95.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.95
+
+Patch:  1095_linux-6.12.96.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.96
+
+Patch:  1096_linux-6.12.97.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.97
+
+Patch:  1097_linux-6.12.98.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.98
+
+Patch:  1098_linux-6.12.99.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.99
+
+Patch:  1099_linux-6.12.100.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.100
+
+Patch:  1100_linux-6.12.101.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.101
+
+Patch:  1101_linux-6.12.102.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.102
+
+Patch:  1102_linux-6.12.103.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.103
+
+Patch:  1103_linux-6.12.104.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.104
+
+Patch:  1104_linux-6.12.105.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.105
+
+Patch:  1105_linux-6.12.106.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.106
+
+Patch:  1106_linux-6.12.107.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.107
+
+Patch:  1107_linux-6.12.108.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.108
+
+Patch:  1108_linux-6.12.109.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.109
+
+Patch:  1109_linux-6.12.110.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.110
+
+Patch:  1110_linux-6.12.111.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.111
+
+Patch:  1111_linux-6.12.112.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.112
+
+Patch:  1112_linux-6.12.113.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.12.113
+
 Patch:  1500_fortify-copy-size-value-range-tracking-fix.patch
 From:   https://git.kernel.org/
 Desc:   fortify: Hide run-time copy size from value range tracking
-
-Patch:  1501_ipv6-frag-escape-mitigation.patch
-From:   https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git/commit/?id=736b380e28d0
-Desc:   ipv6: account for fraggap on the paged allocation path
-
-Patch:  1502_inet-add-indirect-call-wrapper-for-getfrag-calls.patch
-From:   https://git.kernel.org/pub/scm/linux/kernel/git/stable/stable-queue.git/plain/queue-6.12/inet-add-indirect-call-wrapper-for-getfrag-calls.patch
-Desc:   inet: add indirect call wrapper for getfrag() calls
-
-Patch:  1503_ipv4-frag-escape-mitigation.patch
-From:   https://git.kernel.org/pub/scm/linux/kernel/git/stable/stable-queue.git/plain/queue-6.12/inet-add-indirect-call-wrapper-for-getfrag-calls.patch
-Desc:   ipv4: account for fraggap on the paged allocation path
 
 Patch:  1510_fs-enable-link-security-restrictions-by-default.patch
 From:   http://sources.debian.net/src/linux/3.16.7-ckt4-3/debian/patches/debian/fs-enable-link-security-restrictions-by-default.patch/
@@ -446,10 +510,6 @@ Desc:   revert prevent file descriptor table allocation, possible causing crashe
 Patch:  1550_net-gro-dont-merge-zcopy-skbs-v3.patch
 From:   https://lore.kernel.org/netdev/c3b7f906bbfcbdfd7b4fa9d6c18a438870df85be.1779307748.git.sd@queasysnail.net/
 Desc:   net: gro: don't merge zcopy skbs
-
-Patch:  1555_can-bcm-defer-rx-op-dealloca.patch
-From:   https://lore.kernel.org/all/20260526165257.3705239-1-lee@kernel.org/
-Desc:   can: bcm: defer rx_op deallocation to workqueue to fix thrtimer UAF
 
 Patch:  1605_crypto-nx-fix-nx-crypto-ctx-exit-arg.patch
 From:   https://lore.kernel.org/all/a3e89c1e8342ffa415b0d29725a0571a4f355d34.1779472902.git.sam@gentoo.org/

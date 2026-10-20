@@ -1,0 +1,30 @@
+diff --git a/Makefile b/Makefile
+index 2eda2cddaace1a..671079b3367460 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ VERSION = 6
+ PATCHLEVEL = 12
+-SUBLEVEL = 97
++SUBLEVEL = 98
+ EXTRAVERSION =
+ NAME = Baby Opossum Posse
+ 
+diff --git a/fs/ext4/ioctl.c b/fs/ext4/ioctl.c
+index a8a024bb62b4f7..e726f9dbc146db 100644
+--- a/fs/ext4/ioctl.c
++++ b/fs/ext4/ioctl.c
+@@ -1372,8 +1372,10 @@ group_extend_out:
+ 			goto mext_out;
+ 		}
+ 
+-		if (file_inode(filp)->i_sb != file_inode(fd_file(donor))->i_sb)
+-			return -EXDEV;
++		if (file_inode(filp)->i_sb != file_inode(fd_file(donor))->i_sb) {
++			err = -EXDEV;
++			goto mext_out;
++		}
+ 
+ 		err = mnt_want_write_file(filp);
+ 		if (err)
