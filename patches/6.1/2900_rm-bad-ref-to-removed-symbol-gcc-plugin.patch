@@ -1,0 +1,11 @@
+--- a/scripts/gcc-plugins/structleak_plugin.c	2026-10-06 15:07:31.576507297 -0400
++++ b/scripts/gcc-plugins/structleak_plugin.c	2026-10-06 15:08:07.864955639 -0400
+@@ -203,7 +203,7 @@ static unsigned int structleak_execute(v
+ #define PASS_NAME structleak
+ #define NO_GATE
+ #define PROPERTIES_REQUIRED PROP_cfg
+-#define TODO_FLAGS_FINISH TODO_verify_il | TODO_verify_ssa | TODO_verify_stmts | TODO_dump_func | TODO_remove_unused_locals | TODO_update_ssa | TODO_ggc_collect | TODO_verify_flow
++#define TODO_FLAGS_FINISH TODO_verify_ssa | TODO_verify_stmts | TODO_dump_func | TODO_remove_unused_locals | TODO_update_ssa | TODO_ggc_collect | TODO_verify_flow
+ #include "gcc-generate-gimple-pass.h"
+ 
+ __visible int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version *version)

@@ -743,6 +743,66 @@ Patch:  1174_linux-6.1.175.patch
 From:   https://www.kernel.org
 Desc:   Linux 6.1.175
 
+Patch:  1175_linux-6.1.176.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.176
+
+Patch:  1176_linux-6.1.177.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.177
+
+Patch:  1177_linux-6.1.178.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.178
+
+Patch:  1178_linux-6.1.179.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.179
+
+Patch:  1179_linux-6.1.180.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.180
+
+Patch:  1180_linux-6.1.181.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.181
+
+Patch:  1181_linux-6.1.182.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.182
+
+Patch:  1182_linux-6.1.183.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.183
+
+Patch:  1183_linux-6.1.184.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.184
+
+Patch:  1184_linux-6.1.185.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.185
+
+Patch:  1185_linux-6.1.186.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.186
+
+Patch:  1186_linux-6.1.187.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.187
+
+Patch:  1187_linux-6.1.188.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.188
+
+Patch:  1188_linux-6.1.189.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.189
+
+Patch:  1189_linux-6.1.190.patch
+From:   https://www.kernel.org
+Desc:   Linux 6.1.190
+
 Patch:  1500_XATTR_USER_PREFIX.patch
 From:   https://bugs.gentoo.org/show_bug.cgi?id=470644
 Desc:   Support for namespace user.pax.* on tmpfs.
@@ -754,10 +814,6 @@ Desc:   Enable link security restrictions by default.
 Patch:  1525_net-rxrpc-mark-AF_RXRPC-as-BROKEN.patch
 From:   https://bugs.gentoo.org/974307
 Desc:   net/rxrpc: mark AF_RXRPC as BROKEN (and reverse dependencies)
-
-Patch:  1555_can-bcm-defer-rx-op-dealloca.patch
-From:   https://lore.kernel.org/all/20260526165257.3705239-1-lee@kernel.org/
-Desc:   can: bcm: defer rx_op deallocation to workqueue to fix thrtimer UAF
 
 Patch:  1605_crypto-nx-fix-nx-crypto-ctx-exit-arg.patch
 From:   https://lore.kernel.org/all/a3e89c1e8342ffa415b0d29725a0571a4f355d34.1779472902.git.sam@gentoo.org/
@@ -774,6 +830,10 @@ Desc:   Bluetooth: Check key sizes only when Secure Simple Pairing is enabled. S
 Patch:  2010_Fix_randomize_layout_crash_in_struct_neigh.patch
 From:   https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git/commit/?id=45b3fae4675d
 Desc:   neighbour: Fix __randomize_layout crash in struct neighbour
+
+Patch:  2900_rm-bad-ref-to-removed-symbol-gcc-plugin.patch
+From:   https://bugs.gentoo.org/983450
+Desc:   gcc-plugin: Stop referencing the removed symbol in the plugin
 
 Patch:  2910_bfp-mark-get-entry-ip-as--maybe-unused.patch
 From:   https://www.spinics.net/lists/stable/msg604665.html
